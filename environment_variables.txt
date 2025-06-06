@@ -1,0 +1,6 @@
+# Переменные окружения для приложения
+# Скопируйте эти значения в файл .env или используйте для настройки Docker
+
+JWT_SECRET=your-secure-jwt-secret-key-1234567890
+SESSION_SECRET=your-secure-session-secret-key-0987654321
+NODE_ENV=production 

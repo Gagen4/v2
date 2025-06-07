@@ -12,7 +12,9 @@ const db = require('./models/db');
 // Middleware
 app.use(cors({
     origin: 'http://127.0.0.1:5500',
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.use(express.json());
 app.use(cookieParser());
@@ -114,7 +116,8 @@ app.post('/register', async (req, res) => {
             secure: false,
             maxAge: 24 * 60 * 60 * 1000,
             sameSite: 'lax',
-            path: '/'
+            path: '/',
+            domain: '127.0.0.1'
         });
         console.log('Отправка успешного ответа...');
         res.json({ message: 'Регистрация успешна', email });
@@ -157,7 +160,8 @@ app.post('/login', async (req, res) => {
             secure: false,
             maxAge: 24 * 60 * 60 * 1000,
             sameSite: 'lax',
-            path: '/'
+            path: '/',
+            domain: '127.0.0.1'
         });
         
         console.log('Отправка успешного ответа...');
@@ -182,6 +186,13 @@ app.post('/save', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'fileName и geojsonData обязательны' });
         }
 
+        // Проверка валидности имени файла
+        if (fileName === '11' || fileName === '123' || fileName === '352345' || 
+            fileName === '1233' || fileName === 'undefined' || fileName.startsWith('undefined_')) {
+            console.log('Ошибка: недопустимое имя файла:', fileName);
+            return res.status(400).json({ error: 'Недопустимое имя файла' });
+        }
+
         console.log('Сохранение файла с именем:', fileName);
         console.log('Данные GeoJSON для сохранения:', geojsonData);
         const userId = req.user.id;
@@ -201,13 +212,17 @@ app.get('/load/:fileName', authenticateToken, async (req, res) => {
         const fileName = req.params.fileName;
         const userId = req.user.id;
 
+        console.log(`Поиск файла ${fileName} для пользователя ${req.user.email} (ID: ${userId})`);
         const fileData = await db.getFileByNameAndUser(userId, fileName);
+        
         if (!fileData) {
             console.log(`Файл ${fileName} не найден для пользователя ${req.user.email}`);
             return res.status(404).json({ error: 'Файл не найден' });
         }
 
+        console.log('Данные файла найдены:', fileData);
         let geojsonData = fileData.file_content;
+        
         // Проверяем, является ли file_content строкой, и если да, преобразуем в объект
         if (typeof geojsonData === 'string') {
             try {
@@ -216,17 +231,6 @@ app.get('/load/:fileName', authenticateToken, async (req, res) => {
             } catch (e) {
                 console.error(`Ошибка при парсинге данных файла ${fileName}:`, e);
                 return res.status(500).json({ error: 'Ошибка формата данных файла' });
-            }
-        }
-
-        // Убеждаемся, что поле features является массивом
-        if (geojsonData.type === 'FeatureCollection' && typeof geojsonData.features === 'string') {
-            try {
-                geojsonData.features = JSON.parse(geojsonData.features);
-                console.log(`Поле features файла ${fileName} преобразовано из строки в массив`);
-            } catch (e) {
-                console.error(`Ошибка при парсинге поля features файла ${fileName}:`, e);
-                geojsonData.features = [];
             }
         }
 
@@ -241,14 +245,15 @@ app.get('/load/:fileName', authenticateToken, async (req, res) => {
 // Список файлов
 app.get('/files', authenticateToken, async (req, res) => {
     const { id: userId } = req.user;
+    console.log('Запрос списка файлов от пользователя:', req.user.email);
     
     try {
-        const userMapObjects = await db.getMapObjectsByUserId(userId);
-        const files = userMapObjects.map(obj => obj.name);
+        const files = await db.getFilesByUserId(userId);
+        console.log('Найдено файлов:', files.length);
         res.json(files);
     } catch (error) {
         console.error('Ошибка получения списка файлов:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        res.status(500).json({ error: 'Ошибка сервера при получении списка файлов' });
     }
 });
 
@@ -262,11 +267,11 @@ app.get('/admin/files', authenticateToken, isAdmin, async (req, res) => {
             fileName: file.name,
             createdAt: file.created_at
         }));
-        console.log('Список файлов успешно отправлен администратору');
+        console.log('Список файлов успешно отправлен администратору:', files);
         res.json(files);
     } catch (error) {
         console.error('Ошибка получения списка файлов для админа:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        res.status(500).json({ error: 'Ошибка сервера при получении списка файлов' });
     }
 });
 
@@ -297,12 +302,22 @@ app.get('/admin/load/:email/:fileName', authenticateToken, isAdmin, async (req, 
     }
 });
 
-// Получение информации о текущем пользователе
-app.get('/user/info', authenticateToken, (req, res) => {
-    res.json({
-        email: req.user.email,
-        isAdmin: req.user.isAdmin
-    });
+// Получение информации о пользователе
+app.get('/user/info', authenticateToken, async (req, res) => {
+    try {
+        const user = await db.getUserByEmail(req.user.email);
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        res.json({
+            email: user.email,
+            isAdmin: user.role === 'admin',
+            schoolNumber: user.school_number
+        });
+    } catch (error) {
+        console.error('Ошибка при получении информации о пользователе:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
 });
 
 // Выход из системы
@@ -442,22 +457,21 @@ app.post('/verify-email', async (req, res) => {
     }
 });
 
-// Маршрут для удаления файла пользователя
+// Удаление файла
 app.delete('/delete/:fileName', authenticateToken, async (req, res) => {
     try {
         console.log('Запрос на удаление файла от пользователя:', req.user.email);
         const fileName = req.params.fileName;
         const userId = req.user.id;
 
-        // Проверяем, существует ли файл для данного пользователя
-        const fileCheck = await db.getFileByNameAndUser(userId, fileName);
-        if (!fileCheck) {
+        console.log(`Попытка удаления файла ${fileName} для пользователя ${req.user.email} (ID: ${userId})`);
+        const result = await db.deleteFile(userId, fileName);
+        
+        if (result.changes === 0) {
             console.log(`Файл ${fileName} не найден для пользователя ${req.user.email}`);
             return res.status(404).json({ error: 'Файл не найден' });
         }
 
-        // Удаляем только одну запись файла из базы данных
-        await db.deleteFile(userId, fileName);
         console.log(`Файл ${fileName} успешно удален для пользователя ${req.user.email}`);
         res.json({ message: 'Файл успешно удален' });
     } catch (error) {

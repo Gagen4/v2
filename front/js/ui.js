@@ -98,13 +98,25 @@ async function updateFileList() {
             method: 'GET',
             credentials: 'include',
             headers: {
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
             }
         });
+        
+        if (response.status === 401) {
+            console.error('Требуется аутентификация');
+            const fileList = document.getElementById('file-list');
+            if (fileList) {
+                fileList.innerHTML = '<li>Требуется войти в систему</li>';
+            }
+            return;
+        }
+        
         if (!response.ok) {
             console.error('Ошибка при получении списка файлов:', response.status, response.statusText);
             throw new Error(`HTTP error! Status: ${response.status}`);
         }
+        
         const files = await response.json();
         console.log('Список файлов получен:', files);
         const fileList = document.getElementById('file-list');
@@ -124,6 +136,7 @@ async function updateFileList() {
         } else {
             console.error('Элемент file-list не найден в DOM');
         }
+        
         const fileSelect = document.getElementById('load-file-name');
         if (fileSelect) {
             fileSelect.innerHTML = '<option value="">Выберите файл...</option>';
@@ -154,6 +167,7 @@ async function updateFileList() {
 let isSaving = false;
 let saveRequestCount = 0;
 let isSaveHandlerAdded = false;
+let currentFileName = null;
 
 function saveMap() {
     if (!isAuthenticated()) {
@@ -164,47 +178,59 @@ function saveMap() {
         console.log('Сохранение уже выполняется, игнорируем повторный запрос.');
         return;
     }
+
+    // Получаем имя файла из поля ввода
+    const fileNameInput = document.getElementById('save-file-name');
+    if (!fileNameInput || !fileNameInput.value.trim()) {
+        alert('Пожалуйста, введите название файла для сохранения');
+        return;
+    }
+
+    const fileName = fileNameInput.value.trim();
     isSaving = true;
     saveRequestCount++;
     console.log('Попытка сохранения номер:', saveRequestCount);
-    if (fileName) {
-        console.log('Сохранение файла:', fileName);
-        const geojsonData = exportToGeoJSON();
-        console.log('Данные для сохранения:', geojsonData);
-        fetch('http://127.0.0.1:3000/save', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ fileName, geojsonData }),
-            credentials: 'include'
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Файл успешно сохранен:', data);
-            alert(data.message);
-            console.log('Обновление списка файлов после сохранения...');
-            updateFileList();
-            console.log('Список файлов обновлен после сохранения.');
-            isSaving = false;
-            console.log('Сохранение завершено, isSaving сброшен в false.');
-            // Отображение названия текущего файла в панели
-            document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
-        })
-        .catch(error => {
-            console.error('Ошибка при сохранении файла:', error);
-            alert('Произошла ошибка при сохранении файла.');
-            isSaving = false;
-            console.log('Сохранение завершено с ошибкой, isSaving сброшен в false.');
-        });
-    } else {
+    console.log('Сохранение файла:', fileName);
+    const geojsonData = exportToGeoJSON();
+    console.log('Данные для сохранения:', geojsonData);
+    fetch('http://127.0.0.1:3000/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileName, geojsonData }),
+        credentials: 'include'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Файл успешно сохранен:', data);
+        alert(data.message);
+        console.log('Обновление списка файлов после сохранения...');
+        updateFileList();
+        console.log('Список файлов обновлен после сохранения.');
         isSaving = false;
-        console.log('Сохранение отменено пользователем, isSaving сброшен в false.');
+        console.log('Сохранение завершено, isSaving сброшен в false.');
+        // Отображение названия текущего файла в панели
+        document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
+    })
+    .catch(error => {
+        console.error('Ошибка при сохранении файла:', error);
+        alert('Произошла ошибка при сохранении файла.');
+        isSaving = false;
+        console.log('Сохранение завершено с ошибкой, isSaving сброшен в false.');
+    });
+}
+
+// Добавляем функцию для установки имени файла
+function setCurrentFileName(fileName) {
+    currentFileName = fileName;
+    if (document.getElementById('current-file')) {
+        document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
     }
 }
 
@@ -460,10 +486,13 @@ if (deleteButton) {
 export { 
     updateToolButtons, 
     showHelp, 
+    updateCoordinates, 
     initCoordinates, 
+    clearAllFeatures, 
     updateFileList, 
     saveMap, 
     loadMap,
     initUI,
-    initNameEditor
+    initNameEditor,
+    setCurrentFileName
 };

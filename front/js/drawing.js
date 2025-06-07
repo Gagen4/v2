@@ -563,4 +563,12 @@ function calculatePolygonArea(latlngs) {
   return Math.abs(area);
 }
 
-export { setupMapHandlers, addMarker, addLinePoint, addPolygonPoint, finishDrawing, resetDrawing, exportToGeoJSON, importFromGeoJSON, calculateLineLength, calculatePolygonArea };
+export {
+    setupMapHandlers,
+    finishDrawing,
+    resetDrawing,
+    exportToGeoJSON,
+    importFromGeoJSON,
+    calculateLineLength,
+    calculatePolygonArea
+};

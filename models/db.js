@@ -65,34 +65,27 @@ async function getAllMapObjects() {
 }
 
 async function getFileByNameAndUser(userId, fileName) {
+    console.log(`Поиск файла ${fileName} для пользователя с ID ${userId}`);
     const query = 'SELECT * FROM files WHERE user_id = ? AND file_name = ?';
     const rows = await runQuery(query, [userId, fileName]);
+    console.log('Результат поиска файла:', rows[0] ? 'файл найден' : 'файл не найден');
     return rows[0];
 }
 
-async function deleteFile(userId, fileName, fileId = null) {
-    if (fileId) {
-        const query = 'DELETE FROM files WHERE user_id = ? AND file_name = ? AND id = ?';
-        const result = await run(query, [userId, fileName, fileId]);
-        return { changes: result.changes };
-    } else {
-        // Выбираем первую запись по id
-        const selectQuery = 'SELECT id FROM files WHERE user_id = ? AND file_name = ? ORDER BY id ASC LIMIT 1';
-        const rows = await runQuery(selectQuery, [userId, fileName]);
-        if (rows.length > 0) {
-            const fileIdToDelete = rows[0].id;
-            const deleteQuery = 'DELETE FROM files WHERE id = ?';
-            const result = await run(deleteQuery, [fileIdToDelete]);
-            return { changes: result.changes };
-        } else {
-            return { changes: 0 };
-        }
-    }
+async function deleteFile(userId, fileName) {
+    console.log(`Удаление файла ${fileName} для пользователя с ID ${userId}`);
+    const query = 'DELETE FROM files WHERE user_id = ? AND file_name = ?';
+    const result = await run(query, [userId, fileName]);
+    console.log(`Удалено записей: ${result.changes}`);
+    return result;
 }
 
 async function saveFile(userId, fileName, geojsonData) {
+    console.log(`Сохранение файла ${fileName} для пользователя с ID ${userId}`);
     const query = 'INSERT OR REPLACE INTO files (user_id, file_name, file_content) VALUES (?, ?, ?)';
-    return await run(query, [userId, fileName, JSON.stringify(geojsonData)]);
+    const result = await run(query, [userId, fileName, JSON.stringify(geojsonData)]);
+    console.log('Файл успешно сохранен');
+    return result;
 }
 
 async function cleanupFilesWithoutFile() {
@@ -116,7 +109,11 @@ async function deleteMapObject(id) {
 }
 
 async function getFilesByUserId(userId) {
-    return await runQuery('SELECT * FROM files WHERE user_id = ?', [userId]);
+    console.log(`Получение списка файлов для пользователя с ID ${userId}`);
+    const query = 'SELECT file_name, file_content, created_at FROM files WHERE user_id = ? ORDER BY created_at DESC';
+    const rows = await runQuery(query, [userId]);
+    console.log(`Найдено файлов: ${rows.length}`);
+    return rows;
 }
 
 // Миграция для добавления столбца last_login
@@ -198,11 +195,20 @@ async function recreateDatabase() {
                     newDb.run(`CREATE TABLE IF NOT EXISTS files (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL,
-                        file TEXT NOT NULL,
-                        data TEXT NOT NULL,
+                        file_name TEXT NOT NULL,
+                        file_content TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (user_id) REFERENCES Users(id)
                     )`);
+
+                    // Очищаем таблицу files от невалидных записей
+                    newDb.run(`DELETE FROM files WHERE file_name IS NULL OR file_name = '' OR file_name = '11' OR file_name = '123' OR file_name = '352345' OR file_name = '1233' OR file_name = 'undefined' OR file_name LIKE 'undefined_%'`, [], function(err) {
+                        if (err) {
+                            console.error('Ошибка при очистке таблицы files:', err);
+                        } else {
+                            console.log('Таблица files очищена от невалидных записей');
+                        }
+                    });
 
                     console.log('Таблицы созданы в новой базе данных.');
                 });

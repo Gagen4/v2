@@ -3,7 +3,7 @@
  * @module main
  */
 import { initMap } from './mapInit.js';
-import { setupMapHandlers } from './drawing.js';
+import { setupMapHandlers, finishDrawing, resetDrawing } from './drawing.js';
 import { initTools } from './tools.js';
 import { initSearch } from './search.js';
 import { initAuth, isAuthenticated } from './auth.js';

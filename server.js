@@ -57,6 +57,33 @@ app.post('/register', async (req, res) => {
         return res.status(400).json({ error: 'Требуются email и пароль' });
     }
 
+    // Проверка действительности email с помощью quickemailverification
+    try {
+        console.log('Проверка действительности email...');
+        const quickemailverification = require('quickemailverification').client('API_KEY').quickemailverification(); // Замените API_KEY на ваш ключ API
+        const verificationResult = await new Promise((resolve, reject) => {
+            quickemailverification.verify(email, function (err, response) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(response.body);
+                }
+            });
+        });
+
+        if (!verificationResult.result || verificationResult.result !== 'valid') {
+            console.log('Недействительный email:', email);
+            // Теперь не возвращаем ошибку, а просто логируем
+            // return res.status(400).json({ error: 'Недействительный email-адрес' });
+        } else {
+            console.log('Email действителен:', email);
+        }
+    } catch (error) {
+        console.error('Ошибка проверки email:', error);
+        // Можно решить, продолжать ли регистрацию при ошибке проверки
+        // В данном случае продолжаем, но логируем ошибку
+    }
+
     try {
         console.log('Проверка существующего пользователя...');
         const existingUser = await db.getUserByEmail(email);
@@ -394,26 +421,6 @@ app.listen(port, async () => {
             }
         } catch (error) {
             console.error('Ошибка при установке роли admin для gagenik257@gmail.com:', error);
-        }
-        
-        // Временный код для удаления аккаунтов без email и связанных с ними сохранений
-        try {
-            const usersWithoutEmail = await runQuery('SELECT id FROM Users WHERE email IS NULL OR email = ""');
-            console.log(`Найдено ${usersWithoutEmail.length} пользователей без email`);
-            
-            for (const user of usersWithoutEmail) {
-                // Удаляем связанные сохранения
-                await runQuery('DELETE FROM MapObjects WHERE created_by = ?', [user.id]);
-                console.log(`Удалены сохранения для пользователя с ID ${user.id}`);
-                
-                // Удаляем пользователя
-                await runQuery('DELETE FROM Users WHERE id = ?', [user.id]);
-                console.log(`Удален пользователь с ID ${user.id}`);
-            }
-            
-            console.log('Завершено удаление аккаунтов без email и их сохранений');
-        } catch (error) {
-            console.error('Ошибка при удалении аккаунтов без email:', error);
         }
     } catch (error) {
         console.error('Ошибка подключения к базе данных при старте сервера:', error);

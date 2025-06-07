@@ -19,6 +19,7 @@ function setupAuthListeners() {
     const authSubmit = document.getElementById('auth-submit');
     const switchAuth = document.getElementById('switch-auth');
     const logoutBtn = document.getElementById('logout-btn');
+    const updateRoleBtn = document.getElementById('admin-update-role');
     let isLoginMode = true;
 
     switchAuth.addEventListener('click', () => {
@@ -50,6 +51,10 @@ function setupAuthListeners() {
     });
 
     logoutBtn.addEventListener('click', logout);
+    
+    if (updateRoleBtn) {
+        updateRoleBtn.addEventListener('click', updateUserRole);
+    }
 }
 
 /**
@@ -380,8 +385,8 @@ function isValidEmail(email) {
  * Обновление роли пользователя
  */
 async function updateUserRole() {
-    const email = document.getElementById('role-email').value;
-    const role = document.getElementById('role-select').value;
+    const email = document.getElementById('admin-user-list').value;
+    const role = document.getElementById('admin-role-select').value;
     
     if (!email || !role) {
         alert('Введите email и выберите роль');
@@ -415,76 +420,27 @@ async function updateUserRole() {
  */
 async function loadUserList() {
     try {
-        const response = await fetch('http://127.0.0.1:3000/admin/files', {
-            credentials: 'include',
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-
-        const files = await response.json();
-        if (!response.ok) {
-            throw new Error(files.error || 'Ошибка получения списка пользователей');
-        }
-
-        const userList = document.getElementById('user-list');
-        userList.innerHTML = '<h4>Файлы пользователей:</h4>';
-        const users = {};
-        files.forEach(file => {
-            if (!users[file.email]) {
-                users[file.email] = [];
-            }
-            users[file.email].push(file.fileName);
-        });
-
-        for (const [email, userFiles] of Object.entries(users)) {
-            const userDiv = document.createElement('div');
-            userDiv.innerHTML = `<strong>${email}</strong>: ${userFiles.join(', ')}`;
-            userList.appendChild(userDiv);
-        }
-        
-        // Заполняем выпадающее меню email пользователей из нового endpoint
         const usersResponse = await fetch('http://127.0.0.1:3000/admin/users', {
             credentials: 'include',
             headers: {
                 'Accept': 'application/json'
             }
         });
-        
-        const allUsers = await usersResponse.json();
-        if (usersResponse.ok) {
-            const emailSelect = document.getElementById('role-email');
-            emailSelect.innerHTML = '<option value="">Выберите пользователя...</option>';
-            allUsers.forEach(user => {
-                const option = document.createElement('option');
-                option.value = user.email;
-                option.textContent = `${user.email} (${user.role})`;
-                emailSelect.appendChild(option);
-            });
+
+        const users = await usersResponse.json();
+        if (!usersResponse.ok) {
+            throw new Error(users.error || 'Ошибка получения списка пользователей');
         }
-        
-        // Добавляем проверку пользователей без email
-        const checkResponse = await fetch('http://127.0.0.1:3000/admin/check-users-without-email', {
-            credentials: 'include',
-            headers: {
-                'Accept': 'application/json'
-            }
+
+        // Заполняем выпадающее меню email пользователей
+        const emailSelect = document.getElementById('admin-user-list');
+        emailSelect.innerHTML = '<option value="">Выберите пользователя...</option>';
+        users.forEach(user => {
+            const option = document.createElement('option');
+            option.value = user.email;
+            option.textContent = `${user.email} (${user.role})`;
+            emailSelect.appendChild(option);
         });
-        
-        const checkResult = await checkResponse.json();
-        if (checkResponse.ok) {
-            const noEmailDiv = document.createElement('div');
-            noEmailDiv.innerHTML = `<br><strong>Пользователей без email:</strong> ${checkResult.count}`;
-            userList.appendChild(noEmailDiv);
-            
-            if (checkResult.count > 0) {
-                checkResult.users.forEach(user => {
-                    const userNoEmailDiv = document.createElement('div');
-                    userNoEmailDiv.innerHTML = `ID: ${user.id}, Username: ${user.username || 'не указан'}`;
-                    userList.appendChild(userNoEmailDiv);
-                });
-            }
-        }
     } catch (error) {
         console.error('Ошибка при загрузке списка пользователей:', error);
     }

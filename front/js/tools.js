@@ -80,7 +80,8 @@ function initTools() {
     showHelp('Все объекты очищены');
   });
 
-  // Сохранение карты
+  // Сохранение карты - удалено, чтобы избежать дублирования с ui.js
+  /*
   buttons.save.addEventListener('click', async () => {
     if (!isAuthenticated()) {
       showHelp('Ошибка: Необходимо войти в систему');
@@ -130,46 +131,70 @@ function initTools() {
       showHelp('Ошибка при сохранении. Проверьте консоль.');
     }
   });
+  */
 
-  // Загрузка карты
-  buttons.load.addEventListener('click', async () => {
-    if (!isAuthenticated()) {
-      showHelp('Ошибка: Необходимо войти в систему');
-      return;
-    }
-
-    const fileSelect = document.getElementById('load-file-name');
-    const fileName = fileSelect.value;
-    if (!fileName) {
-      showHelp('Ошибка: Выберите файл для загрузки');
-      return;
-    }
-
-    try {
-      console.log('Загрузка файла:', fileName);
-      const response = await fetch(`http://127.0.0.1:3000/load/${fileName}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { 
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Ошибка загрузки:', response.status, errorText);
-        throw new Error('Ошибка загрузки');
-      }
-
-      const geojson = await response.json();
-      state.drawnItems.clearLayers();
-      importFromGeoJSON(geojson);
-      showHelp(`Загружен файл: ${fileName}`);
-    } catch (error) {
-      console.error('Ошибка загрузки:', error);
-      showHelp('Ошибка при загрузке. Проверьте консоль.');
-    }
-  });
+  // Обработчик загрузки
+  // if (buttons.load) {
+  //     buttons.load.addEventListener('click', async () => {
+  //         try {
+  //             console.log('Загрузка файла из tools.js');
+  //             const fileSelect = document.getElementById('load-file-name');
+  //             if (!fileSelect) {
+  //                 console.error('Элемент load-file-name не найден');
+  //                 alert('Ошибка: Элемент выбора файла не найден.');
+  //                 return;
+  //             }
+  // 
+  //             const fileName = fileSelect.value;
+  //             if (!fileName) {
+  //                 console.error('Файл для загрузки не выбран');
+  //                 alert('Пожалуйста, выберите файл для загрузки.');
+  //                 return;
+  //             }
+  // 
+  //             console.log('Загрузка файла:', fileName);
+  //             const response = await fetch(`http://127.0.0.1:3000/load/${fileName}`, {
+  //                 method: 'GET',
+  //                 credentials: 'include',
+  //                 headers: {
+  //                     'Accept': 'application/json',
+  //                     'Content-Type': 'application/json'
+  //                 }
+  //             });
+  // 
+  //             if (!response.ok) {
+  //                 console.error('Ошибка загрузки файла:', response.status, response.statusText);
+  //                 const errorText = await response.text();
+  //                 console.error('Текст ошибки:', errorText);
+  //                 alert(`Ошибка загрузки файла: ${response.status}. ${errorText}`);
+  //                 return;
+  //             }
+  // 
+  //             const geojson = await response.json();
+  //             console.log('Данные GeoJSON загружены:', geojson);
+  // 
+  //             if (geojson.type === 'FeatureCollection' && typeof geojson.features === 'string') {
+  //                 try {
+  //                     geojson.features = JSON.parse(geojson.features);
+  //                     console.log('Поле features преобразовано из строки в массив в tools.js:', geojson.features);
+  //                 } catch (e) {
+  //                     console.error('Ошибка при парсинге поля features в tools.js:', e);
+  //                     alert('Ошибка формата данных карты.');
+  //                     return;
+  //                 }
+  //             }
+  // 
+  //             state.drawnItems.clearLayers();
+  //             importFromGeoJSON(geojson);
+  //             console.log('Данные переданы в importFromGeoJSON из tools.js');
+  //         } catch (error) {
+  //             console.error('Ошибка загрузки:', error);
+  //             alert('Произошла ошибка при загрузке файла.');
+  //         }
+  //     });
+  // } else {
+  //     console.error('Кнопка load-map не найдена');
+  // }
 }
 
 export { initTools };

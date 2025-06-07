@@ -88,158 +88,123 @@ function clearAllFeatures() {
 /**
  * Обновляет список файлов
  */
+let isFileListUpdated = false;
+let fileListUpdateTimeout = null;
+let fileListUpdateCount = 0;
 async function updateFileList() {
-    if (!isAuthenticated()) {
-        console.log('Пользователь не авторизован');
-        return;
-    }
-
     try {
-        console.log('Запрос списка файлов...');
-        console.log('Текущие cookies:', document.cookie);
-        
-        // Сначала проверяем, является ли пользователь администратором
-        const userResponse = await fetch('http://127.0.0.1:3000/user/info', {
+        console.log('Обновление списка файлов...');
+        const response = await fetch('http://127.0.0.1:3000/files', {
+            method: 'GET',
             credentials: 'include',
             headers: {
                 'Accept': 'application/json'
             }
         });
-
-        if (!userResponse.ok) {
-            console.error('Ошибка получения информации о пользователе:', userResponse.status, userResponse.statusText);
-            const errorText = await userResponse.text();
-            console.error('Текст ошибки:', errorText);
-            throw new Error('Ошибка получения информации о пользователе');
+        if (!response.ok) {
+            console.error('Ошибка при получении списка файлов:', response.status, response.statusText);
+            throw new Error(`HTTP error! Status: ${response.status}`);
         }
-        
-        const user = await userResponse.json();
-        console.log('Информация о пользователе:', user);
-        let files = [];
-
-        if (user.isAdmin || user.username === 'admin') {
-            console.log('Загрузка списка файлов для администратора...');
-            const adminResponse = await fetch('http://127.0.0.1:3000/admin/files', {
-                method: 'GET',
-                credentials: 'include',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!adminResponse.ok) {
-                console.error('Ошибка получения списка файлов для админа:', adminResponse.status, adminResponse.statusText);
-                const errorText = await adminResponse.text();
-                console.error('Текст ошибки:', errorText);
-                throw new Error('Ошибка получения списка файлов для администратора');
-            }
-            
-            files = await adminResponse.json();
-            console.log('Получен список файлов для админа:', files);
-            
-            const select = document.getElementById('admin-file-list');
-            if (select) {
-                select.innerHTML = '<option value="">Выберите файл...</option>';
-                files.forEach(file => {
-                    const option = document.createElement('option');
-                    option.value = `${file.username}/${file.fileName}`;
-                    option.textContent = `${file.username} - ${file.fileName}`;
-                    select.appendChild(option);
-                });
-                // Показываем панель администратора
-                const adminPanel = document.getElementById('admin-panel');
-                if (adminPanel) {
-                    adminPanel.style.display = 'block';
-                } else {
-                    console.error('Элемент admin-panel не найден в DOM');
-                }
+        const files = await response.json();
+        console.log('Список файлов получен:', files);
+        const fileList = document.getElementById('file-list');
+        if (fileList) {
+            fileList.innerHTML = '';
+            if (files.length === 0) {
+                console.log('Нет сохраненных файлов для отображения');
+                fileList.innerHTML = '<li>Нет сохраненных файлов</li>';
             } else {
-                console.error('Элемент admin-file-list не найден в DOM');
+                files.forEach(file => {
+                    const li = document.createElement('li');
+                    li.textContent = file.file_name || file;
+                    li.setAttribute('data-file-name', file.file_name || file);
+                    fileList.appendChild(li);
+                });
             }
         } else {
-            console.log('Загрузка списка файлов для обычного пользователя...');
-            const response = await fetch('http://127.0.0.1:3000/files', {
-                method: 'GET',
-                credentials: 'include',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                console.error('Ошибка получения списка файлов:', response.status, response.statusText);
-                const errorText = await response.text();
-                console.error('Текст ошибки:', errorText);
-                throw new Error('Ошибка получения списка файлов');
-            }
-            
-            files = await response.json();
-            console.log('Получен список файлов:', files);
-            
-            const select = document.getElementById('load-file-name');
-            if (select) {
-                select.innerHTML = '<option value="">Выберите файл...</option>';
-                files.forEach(fileName => {
+            console.error('Элемент file-list не найден в DOM');
+        }
+        const fileSelect = document.getElementById('load-file-name');
+        if (fileSelect) {
+            fileSelect.innerHTML = '<option value="">Выберите файл...</option>';
+            if (files.length > 0) {
+                files.forEach(file => {
                     const option = document.createElement('option');
-                    option.value = fileName;
-                    option.textContent = fileName;
-                    select.appendChild(option);
+                    option.value = file.file_name || file;
+                    option.textContent = file.file_name || file;
+                    fileSelect.appendChild(option);
                 });
-            } else {
-                console.error('Элемент load-file-name не найден в DOM');
             }
+        } else {
+            console.error('Элемент load-file-name не найден в DOM');
         }
     } catch (error) {
-        console.error('Ошибка загрузки списка файлов:', error);
-        document.getElementById('error-message').textContent = 'Ошибка загрузки списка файлов';
+        console.error('Исключение при получении списка файлов:', error);
+        console.error('URL запроса:', 'http://127.0.0.1:3000/files');
+        console.error('Ошибка может быть связана с недоступностью сервера или сетевыми проблемами.');
+        const fileList = document.getElementById('file-list');
+        if (fileList) {
+            fileList.innerHTML = '<li>Ошибка загрузки списка файлов</li>';
+        } else {
+            console.error('Элемент file-list не найден в DOM при обработке ошибки');
+        }
     }
 }
 
-/**
- * Сохраняет текущее состояние карты
- */
-async function saveMap() {
+let isSaving = false;
+let saveRequestCount = 0;
+let isSaveHandlerAdded = false;
+
+function saveMap() {
     if (!isAuthenticated()) {
-        document.getElementById('error-message').textContent = 'Необходимо войти в систему';
+        alert('Пожалуйста, войдите в систему для сохранения карты.');
         return;
     }
-
-    const fileName = document.getElementById('save-file-name').value;
-    if (!fileName) {
-        document.getElementById('error-message').textContent = 'Введите имя файла';
+    if (isSaving) {
+        console.log('Сохранение уже выполняется, игнорируем повторный запрос.');
         return;
     }
-
-    try {
-        const currentUser = getCurrentUser();
-        const fullFileName = `${currentUser.username}_${fileName}`;
+    isSaving = true;
+    saveRequestCount++;
+    console.log('Попытка сохранения номер:', saveRequestCount);
+    if (fileName) {
+        console.log('Сохранение файла:', fileName);
         const geojsonData = exportToGeoJSON();
-        
-        console.log('Сохранение файла:', fullFileName);
-        const response = await fetch('http://127.0.0.1:3000/save', {
+        console.log('Данные для сохранения:', geojsonData);
+        fetch('http://127.0.0.1:3000/save', {
             method: 'POST',
-            credentials: 'include',
             headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ fileName: fullFileName, geojsonData }),
+            body: JSON.stringify({ fileName, geojsonData }),
+            credentials: 'include'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Файл успешно сохранен:', data);
+            alert(data.message);
+            console.log('Обновление списка файлов после сохранения...');
+            updateFileList();
+            console.log('Список файлов обновлен после сохранения.');
+            isSaving = false;
+            console.log('Сохранение завершено, isSaving сброшен в false.');
+            // Отображение названия текущего файла в панели
+            document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
+        })
+        .catch(error => {
+            console.error('Ошибка при сохранении файла:', error);
+            alert('Произошла ошибка при сохранении файла.');
+            isSaving = false;
+            console.log('Сохранение завершено с ошибкой, isSaving сброшен в false.');
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Ошибка сохранения:', response.status, errorText);
-            throw new Error('Ошибка сохранения');
-        }
-        
-        document.getElementById('save-file-name').value = '';
-        await updateFileList();
-        showHelp('Карта успешно сохранена');
-    } catch (error) {
-        console.error('Ошибка сохранения:', error);
-        document.getElementById('error-message').textContent = 'Ошибка сохранения карты';
+    } else {
+        isSaving = false;
+        console.log('Сохранение отменено пользователем, isSaving сброшен в false.');
     }
 }
 
@@ -313,7 +278,17 @@ function initUI() {
     });
     document.getElementById('clear-all').addEventListener('click', clearAllFeatures);
     
-    document.getElementById('save-map').addEventListener('click', saveMap);
+    const saveButton = document.getElementById('save-map');
+    if (saveButton) {
+        // Удаляем все существующие обработчики событий для кнопки сохранения
+        saveButton.removeEventListener('click', saveMap);
+        saveButton.addEventListener('click', saveMap);
+        isSaveHandlerAdded = true;
+        console.log('Обработчик для кнопки сохранения добавлен (удалены все предыдущие обработчики)');
+    } else {
+        console.error('Кнопка сохранения не найдена в DOM');
+    }
+    
     document.getElementById('load-map').addEventListener('click', loadMap);
     
     initNameEditor();
@@ -366,6 +341,120 @@ function initNameEditor() {
     } else {
         console.error('Элементы для редактирования названия не найдены');
     }
+}
+
+// Обработчик для кнопки "Загрузить"
+const loadButton = document.getElementById('load-map');
+if (loadButton) {
+    loadButton.removeEventListener('click', loadMap); // Удаляем существующий обработчик, если есть
+    loadButton.addEventListener('click', async () => {
+        try {
+            console.log('Нажата кнопка "Загрузить"');
+            const fileName = document.getElementById('load-file-name').value;
+            if (!fileName) {
+                console.error('Ошибка: Не выбран файл для загрузки');
+                alert('Пожалуйста, выберите файл для загрузки.');
+                return;
+            }
+            console.log('Попытка загрузки файла:', fileName);
+            const response = await fetch(`http://127.0.0.1:3000/load/${fileName}`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.error('Ошибка загрузки файла:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('Текст ошибки от сервера:', errorText);
+                alert(`Ошибка загрузки файла: ${response.status}. ${errorText}`);
+                return;
+            }
+
+            const mapData = await response.json();
+            console.log('Данные карты успешно загружены:', mapData);
+            if (typeof importFromGeoJSON === 'function') {
+                // Проверяем, является ли поле features строкой, и если да, преобразуем в массив
+                if (mapData.type === 'FeatureCollection' && typeof mapData.features === 'string') {
+                    try {
+                        mapData.features = JSON.parse(mapData.features);
+                        console.log('Поле features преобразовано из строки в массив:', mapData.features);
+                    } catch (e) {
+                        console.error('Ошибка при парсинге поля features:', e);
+                        alert('Ошибка формата данных карты.');
+                        return;
+                    }
+                }
+                // Проверяем, является ли features массивом перед передачей в importFromGeoJSON
+                if (Array.isArray(mapData.features)) {
+                    state.drawnItems.clearLayers(); // Очищаем существующие слои перед загрузкой новых данных
+                    importFromGeoJSON(mapData);
+                    console.log('Данные карты переданы в функцию importFromGeoJSON');
+                } else {
+                    console.error('Ошибка: Поле features не является массивом', mapData.features);
+                    alert('Ошибка формата данных карты: features не является массивом.');
+                }
+            } else {
+                console.error('Ошибка: Функция importFromGeoJSON не определена');
+                alert('Функция загрузки данных карты не найдена.');
+            }
+        } catch (error) {
+            console.error('Исключение при загрузке файла:', error);
+            alert('Произошла ошибка при загрузке файла.');
+        }
+    });
+} else {
+    console.error('Кнопка загрузки не найдена в DOM');
+}
+
+// Обработчик для кнопки "Удалить выбранное сохранение"
+const deleteButton = document.getElementById('delete-map');
+if (deleteButton) {
+    deleteButton.addEventListener('click', async () => {
+        try {
+            console.log('Нажата кнопка "Удалить выбранное сохранение"');
+            const fileName = document.getElementById('load-file-name').value;
+            if (!fileName) {
+                console.error('Ошибка: Не выбран файл для удаления');
+                alert('Пожалуйста, выберите файл для удаления.');
+                return;
+            }
+            console.log('Попытка удаления файла:', fileName);
+            if (confirm(`Вы уверены, что хотите удалить файл ${fileName}?`)) {
+                const response = await fetch(`http://127.0.0.1:3000/delete/${fileName}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error('Ошибка удаления файла:', response.status, response.statusText);
+                    const errorText = await response.text();
+                    console.error('Текст ошибки от сервера:', errorText);
+                    alert(`Ошибка удаления файла: ${response.status}. ${errorText}`);
+                    return;
+                }
+
+                const result = await response.json();
+                console.log('Файл успешно удален:', result);
+                alert('Файл успешно удален!');
+                updateFileList(); // Обновляем список файлов после удаления
+            } else {
+                console.log('Удаление файла отменено пользователем');
+            }
+        } catch (error) {
+            console.error('Исключение при удалении файла:', error);
+            alert('Произошла ошибка при удалении файла.');
+        }
+    });
+} else {
+    console.error('Кнопка удаления не найдена в DOM');
 }
 
 export { 

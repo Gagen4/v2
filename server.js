@@ -50,11 +50,16 @@ function isAdmin(req, res, next) {
 // Регистрация
 app.post('/register', async (req, res) => {
     console.log('Запрос на регистрацию получен:', req.body);
-    const { email, password } = req.body;
+    const { email, password, schoolNumber } = req.body;
     
     if (!email || !password) {
         console.log('Ошибка: отсутствует email или пароль');
         return res.status(400).json({ error: 'Требуются email и пароль' });
+    }
+
+    if (!schoolNumber) {
+        console.log('Ошибка: отсутствует номер школы');
+        return res.status(400).json({ error: 'Требуется номер школы' });
     }
 
     // Проверка действительности email с помощью quickemailverification
@@ -95,7 +100,7 @@ app.post('/register', async (req, res) => {
         console.log('Хеширование пароля...');
         const hashedPassword = await bcrypt.hash(password, 10);
         console.log('Создание нового пользователя...');
-        const userId = await db.createUserByEmail(email, hashedPassword);
+        const userId = await db.createUserByEmail(email, hashedPassword, schoolNumber);
         // Устанавливаем роль student для новых пользователей
         await db.updateUserRole(userId, 'student');
         
@@ -167,51 +172,69 @@ app.post('/login', async (req, res) => {
     }
 });
 
-// Сохранение GeoJSON
+// Сохранение файла
 app.post('/save', authenticateToken, async (req, res) => {
-    const { fileName, geojsonData } = req.body;
-    const { id: userId } = req.user;
-
-    if (!fileName || !geojsonData) {
-        return res.status(400).json({ error: 'Имя файла и данные обязательны' });
-    }
-
     try {
-        await db.saveMapObject(
-            userId,
-            fileName,
-            geojsonData.type || 'FeatureCollection',
-            geojsonData.features || geojsonData,
-            {}
-        );
-        
-        res.json({ message: 'Сохранено успешно' });
+        console.log('Запрос на сохранение файла от пользователя:', req.user.email);
+        const { fileName, geojsonData } = req.body;
+        if (!fileName || !geojsonData) {
+            console.log('Ошибка: fileName или geojsonData отсутствуют в запросе', req.body);
+            return res.status(400).json({ error: 'fileName и geojsonData обязательны' });
+        }
+
+        console.log('Сохранение файла с именем:', fileName);
+        console.log('Данные GeoJSON для сохранения:', geojsonData);
+        const userId = req.user.id;
+        await db.saveFile(userId, fileName, geojsonData);
+        console.log(`Файл ${fileName} успешно сохранен для пользователя ${req.user.email} с ID ${userId}`);
+        res.json({ message: 'Файл успешно сохранен' });
     } catch (error) {
-        console.error('Ошибка сохранения:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        console.error('Ошибка при сохранении файла:', error);
+        res.status(500).json({ error: 'Ошибка сервера при сохранении файла' });
     }
 });
 
-// Загрузка GeoJSON
+// Загрузка файла
 app.get('/load/:fileName', authenticateToken, async (req, res) => {
-    const { fileName } = req.params;
-    const { id: userId } = req.user;
-
     try {
-        const mapObject = await db.getMapObjectByName(userId, fileName);
-        if (!mapObject) {
+        console.log('Запрос на загрузку файла от пользователя:', req.user.email);
+        const fileName = req.params.fileName;
+        const userId = req.user.id;
+
+        const fileData = await db.getFileByNameAndUser(userId, fileName);
+        if (!fileData) {
+            console.log(`Файл ${fileName} не найден для пользователя ${req.user.email}`);
             return res.status(404).json({ error: 'Файл не найден' });
         }
 
-        const geojsonData = {
-            type: mapObject.type,
-            features: mapObject.coordinates
-        };
+        let geojsonData = fileData.file_content;
+        // Проверяем, является ли file_content строкой, и если да, преобразуем в объект
+        if (typeof geojsonData === 'string') {
+            try {
+                geojsonData = JSON.parse(geojsonData);
+                console.log(`Данные файла ${fileName} преобразованы из строки в объект`);
+            } catch (e) {
+                console.error(`Ошибка при парсинге данных файла ${fileName}:`, e);
+                return res.status(500).json({ error: 'Ошибка формата данных файла' });
+            }
+        }
 
+        // Убеждаемся, что поле features является массивом
+        if (geojsonData.type === 'FeatureCollection' && typeof geojsonData.features === 'string') {
+            try {
+                geojsonData.features = JSON.parse(geojsonData.features);
+                console.log(`Поле features файла ${fileName} преобразовано из строки в массив`);
+            } catch (e) {
+                console.error(`Ошибка при парсинге поля features файла ${fileName}:`, e);
+                geojsonData.features = [];
+            }
+        }
+
+        console.log(`Файл ${fileName} успешно загружен для пользователя ${req.user.email}`);
         res.json(geojsonData);
     } catch (error) {
-        console.error('Ошибка загрузки:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        console.error('Ошибка при загрузке файла:', error);
+        res.status(500).json({ error: 'Ошибка сервера при загрузке файла' });
     }
 });
 
@@ -220,8 +243,8 @@ app.get('/files', authenticateToken, async (req, res) => {
     const { id: userId } = req.user;
     
     try {
-        const mapObjects = await db.getMapObjectsByUser(userId);
-        const files = mapObjects.map(obj => obj.name);
+        const userMapObjects = await db.getMapObjectsByUserId(userId);
+        const files = userMapObjects.map(obj => obj.name);
         res.json(files);
     } catch (error) {
         console.error('Ошибка получения списка файлов:', error);
@@ -324,9 +347,13 @@ app.get('/verify-email', async (req, res) => {
 
 // Временный endpoint для обновления роли пользователя на admin (для начальной настройки)
 app.get('/admin/set-role', authenticateToken, isAdmin, async (req, res) => {
-    const { email, role } = req.query;
+    const { email, role, schoolNumber } = req.query;
     if (!email || !role) {
         return res.status(400).json({ error: 'Email и роль обязательны' });
+    }
+
+    if ((role === 'student' || role === 'teacher') && !schoolNumber) {
+        return res.status(400).json({ error: 'Номер школы обязателен для ученика или учителя' });
     }
 
     try {
@@ -335,7 +362,23 @@ app.get('/admin/set-role', authenticateToken, isAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
 
-        await db.updateUserRole(user.id, role);
+        // Проверка соответствия номера школы у учителя и учеников
+        if (role === 'student') {
+            const teacher = await db.getTeacherBySchoolNumber(schoolNumber);
+            if (teacher && teacher.schoolNumber !== schoolNumber) {
+                return res.status(400).json({ error: 'Номер школы ученика не соответствует номеру школы учителя' });
+            }
+        } else if (role === 'teacher') {
+            const students = await db.getStudentsBySchoolNumber(schoolNumber);
+            if (students.length > 0) {
+                const mismatchedStudents = students.filter(student => student.schoolNumber !== schoolNumber);
+                if (mismatchedStudents.length > 0) {
+                    return res.status(400).json({ error: 'Номер школы учителя не соответствует номерам школы некоторых учеников' });
+                }
+            }
+        }
+
+        await db.updateUserRole(user.id, role, schoolNumber);
         res.json({ message: `Роль пользователя ${email} обновлена на ${role}` });
     } catch (error) {
         console.error('Ошибка при обновлении роли:', error);
@@ -396,6 +439,87 @@ app.post('/verify-email', async (req, res) => {
     } catch (error) {
         console.error('Server error during email verification:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Маршрут для удаления файла пользователя
+app.delete('/delete/:fileName', authenticateToken, async (req, res) => {
+    try {
+        console.log('Запрос на удаление файла от пользователя:', req.user.email);
+        const fileName = req.params.fileName;
+        const userId = req.user.id;
+
+        // Проверяем, существует ли файл для данного пользователя
+        const fileCheck = await db.getFileByNameAndUser(userId, fileName);
+        if (!fileCheck) {
+            console.log(`Файл ${fileName} не найден для пользователя ${req.user.email}`);
+            return res.status(404).json({ error: 'Файл не найден' });
+        }
+
+        // Удаляем только одну запись файла из базы данных
+        await db.deleteFile(userId, fileName);
+        console.log(`Файл ${fileName} успешно удален для пользователя ${req.user.email}`);
+        res.json({ message: 'Файл успешно удален' });
+    } catch (error) {
+        console.error('Ошибка при удалении файла:', error);
+        res.status(500).json({ error: 'Ошибка сервера при удалении файла' });
+    }
+});
+
+// Временный маршрут для получения списка файлов текущего пользователя (для отладки)
+app.get('/user/files', authenticateToken, async (req, res) => {
+    try {
+        console.log('Запрос списка файлов от пользователя:', req.user.email);
+        const userId = req.user.id;
+        const { runQuery } = require('./config/database');
+        const files = await runQuery('SELECT id, file_name, created_at FROM files WHERE user_id = ?', [userId]);
+        console.log(`Найдено ${files.length} файлов для пользователя ${req.user.email}`);
+        res.json({ files });
+    } catch (error) {
+        console.error('Ошибка при получении списка файлов пользователя:', error);
+        res.status(500).json({ error: 'Ошибка сервера при получении списка файлов' });
+    }
+});
+
+// Endpoint для очистки базы данных от записей без file
+app.delete('/admin/cleanup-files', authenticateToken, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Доступ запрещен. Требуются права администратора.' });
+    }
+    try {
+        const result = await db.cleanupFilesWithoutFile();
+        res.json({ message: 'База данных очищена от записей без файла.', deletedCount: result });
+    } catch (error) {
+        console.error('Ошибка при очистке базы данных:', error);
+        res.status(500).json({ error: 'Ошибка сервера при очистке базы данных.' });
+    }
+});
+
+// Endpoint для пересоздания базы данных
+app.post('/admin/recreate-database', authenticateToken, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Доступ запрещен. Требуются права администратора.' });
+    }
+    try {
+        await db.recreateDatabase();
+        res.json({ message: 'База данных успешно пересоздана.' });
+    } catch (error) {
+        console.error('Ошибка при пересоздании базы данных:', error);
+        res.status(500).json({ error: 'Ошибка сервера при пересоздании базы данных.' });
+    }
+});
+
+// Endpoint для очистки всех сохранений
+app.delete('/admin/clear-saves', authenticateToken, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Доступ запрещен. Требуются права администратора.' });
+    }
+    try {
+        const result = await db.clearAllSaves();
+        res.json({ message: 'Все сохранения успешно удалены из базы данных.', deletedCount: result });
+    } catch (error) {
+        console.error('Ошибка при очистке сохранений:', error);
+        res.status(500).json({ error: 'Ошибка сервера при очистке сохранений.' });
     }
 });
 

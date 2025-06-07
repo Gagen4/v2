@@ -40,6 +40,17 @@ const db = new sqlite3.Database(dbPath, (err) => {
             if (err) console.error('Error creating MapObjects table:', err);
         });
 
+        db.run(`CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            file_name TEXT NOT NULL,
+            file_content TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES Users(id)
+        )`, (err) => {
+            if (err) console.error('Error creating files table:', err);
+        });
+
         db.run(`CREATE INDEX IF NOT EXISTS idx_mapobjects_type ON MapObjects(type)`, (err) => {
             if (err) console.error('Error creating index idx_mapobjects_type:', err);
         });

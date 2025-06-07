@@ -27,6 +27,7 @@ function setupAuthListeners() {
         document.querySelector('.auth-form h2').textContent = isLoginMode ? 'Вход' : 'Регистрация';
         authSubmit.textContent = isLoginMode ? 'Войти' : 'Зарегистрироваться';
         switchAuth.textContent = isLoginMode ? 'Зарегистрироваться' : 'Войти';
+        document.getElementById('registration-extra-fields').style.display = isLoginMode ? 'none' : 'block';
         hideError();
     });
 
@@ -43,7 +44,12 @@ function setupAuthListeners() {
             if (isLoginMode) {
                 await login(email, password);
             } else {
-                await register(email, password);
+                const schoolNumber = document.getElementById('school-number').value;
+                if (!schoolNumber) {
+                    showError('Введите номер школы');
+                    return;
+                }
+                await register(email, password, schoolNumber);
             }
         } catch (error) {
             showError(error.message);
@@ -77,7 +83,7 @@ function hideError() {
 /**
  * Регистрация нового пользователя
  */
-async function register(email, password) {
+async function register(email, password, schoolNumber) {
     try {
         if (!email || !password) {
             throw new Error('Заполните все поля');
@@ -90,7 +96,7 @@ async function register(email, password) {
         if (!emailExists) {
             throw new Error('Этот email не существует или недоступен');
         }
-        console.log('Отправка запроса на регистрацию с данными:', { email, password });
+        console.log('Отправка запроса на регистрацию с данными:', { email, password, schoolNumber });
         const response = await fetch('http://127.0.0.1:3000/register', {
             method: 'POST',
             credentials: 'include',
@@ -98,7 +104,7 @@ async function register(email, password) {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ email, password, schoolNumber }),
         });
 
         console.log('Ответ сервера на запрос регистрации:', response.status, response.statusText);
@@ -387,14 +393,20 @@ function isValidEmail(email) {
 async function updateUserRole() {
     const email = document.getElementById('admin-user-list').value;
     const role = document.getElementById('admin-role-select').value;
+    const schoolNumber = document.getElementById('admin-school-number').value;
     
     if (!email || !role) {
         alert('Введите email и выберите роль');
         return;
     }
 
+    if ((role === 'student' || role === 'teacher') && !schoolNumber) {
+        alert('Введите номер школы для ученика или учителя');
+        return;
+    }
+
     try {
-        const response = await fetch(`http://127.0.0.1:3000/admin/set-role?email=${encodeURIComponent(email)}&role=${role}`, {
+        const response = await fetch(`http://127.0.0.1:3000/admin/set-role?email=${encodeURIComponent(email)}&role=${role}&schoolNumber=${encodeURIComponent(schoolNumber)}`, {
             method: 'GET',
             credentials: 'include',
             headers: {
@@ -426,7 +438,7 @@ async function loadUserList() {
                 'Accept': 'application/json'
             }
         });
-
+        
         const users = await usersResponse.json();
         if (!usersResponse.ok) {
             throw new Error(users.error || 'Ошибка получения списка пользователей');
@@ -434,13 +446,13 @@ async function loadUserList() {
 
         // Заполняем выпадающее меню email пользователей
         const emailSelect = document.getElementById('admin-user-list');
-        emailSelect.innerHTML = '<option value="">Выберите пользователя...</option>';
+            emailSelect.innerHTML = '<option value="">Выберите пользователя...</option>';
         users.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.email;
-            option.textContent = `${user.email} (${user.role})`;
-            emailSelect.appendChild(option);
-        });
+                const option = document.createElement('option');
+                option.value = user.email;
+                option.textContent = `${user.email} (${user.role})`;
+                emailSelect.appendChild(option);
+            });
     } catch (error) {
         console.error('Ошибка при загрузке списка пользователей:', error);
     }

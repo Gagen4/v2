@@ -265,13 +265,9 @@ app.get('/files', authenticateToken, async (req, res) => {
 
     try {
         const files = await db.getFilesByUserId(userId);
-
-    console.log('Запрос списка файлов от пользователя:', req.user.email);
-    
-    try {
-        const files = await db.getFilesByUserId(userId);
+        console.log('Запрос списка файлов от пользователя:', req.user.email);
         console.log('Найдено файлов:', files.length);
->>>>>>> 32345f3170d5748ca2592f2d23ca406e0b89d3c8
+
         res.json(files);
     } catch (error) {
         console.error('Ошибка получения списка файлов:', error);

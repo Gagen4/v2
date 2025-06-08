@@ -343,7 +343,7 @@ function getGeoJSONForSave() {
     }
 }
 
-async function deleteFile() {
+    async function deleteFile() {
     const selectedFile = document.querySelector('.file-item.selected');
     if (!selectedFile) {
         showNotification('Выберите файл для удаления', 'error');

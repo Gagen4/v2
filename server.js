@@ -19,22 +19,39 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// Middleware для логирования всех запросов
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Cookies:', JSON.stringify(req.cookies, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    next();
+});
+
 // Middleware для проверки JWT
 async function authenticateToken(req, res, next) {
+    console.log('[AUTH] Проверка токена аутентификации');
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Требуется аутентификация' });
+    if (!token) {
+        console.log('[AUTH] Токен отсутствует в cookies');
+        return res.status(401).json({ error: 'Требуется аутентификация' });
+    }
 
     try {
+        console.log('[AUTH] Проверка токена:', token);
         const secret = process.env.JWT_SECRET || 'my-secret-key-please-change-me';
         const decoded = jwt.verify(token, secret);
+        console.log('[AUTH] Токен декодирован:', decoded);
         const user = await db.getUserByEmail(decoded.email);
         if (!user) {
+            console.log('[AUTH] Пользователь не найден:', decoded.email);
             return res.status(401).json({ error: 'Пользователь не найден' });
         }
         req.user = { id: user.id, email: user.email, isAdmin: user.role === 'admin' };
+        console.log('[AUTH] Пользователь аутентифицирован:', req.user);
         next();
     } catch (error) {
-        console.error('Ошибка проверки токена:', error);
+        console.error('[AUTH] Ошибка проверки токена:', error);
         return res.status(403).json({ error: 'Недействительный токен' });
     }
 }
@@ -535,6 +552,24 @@ app.delete('/admin/clear-saves', authenticateToken, async (req, res) => {
         console.error('Ошибка при очистке сохранений:', error);
         res.status(500).json({ error: 'Ошибка сервера при очистке сохранений.' });
     }
+});
+
+// Проверка доступности сервера
+app.get('/health', (req, res) => {
+    console.log('[HEALTH] Получен запрос на проверку здоровья сервера');
+    res.status(200).json({ status: 'ok' });
+});
+
+// Проверка токена
+app.get('/check-token', authenticateToken, (req, res) => {
+    console.log('[TOKEN] Проверка токена для пользователя:', req.user.email);
+    res.status(200).json({ 
+        message: 'Токен действителен',
+        user: {
+            email: req.user.email,
+            isAdmin: req.user.isAdmin
+        }
+    });
 });
 
 app.listen(port, async () => {

@@ -33,10 +33,14 @@ function updateToolButtons(state) {
  * @param {string} message - Сообщение для отображения.
  */
 function showHelp(message) {
-  const help = document.getElementById('help-text');
-  const error = document.getElementById('error-message');
-  if (help) help.textContent = message;
-  if (error) error.textContent = message.startsWith('Ошибка') ? message : '';
+  const helpText = message || `
+    Инструкция по использованию карты:
+    1. Для добавления маркера нажмите кнопку "Маркер" и кликните на карту
+    2. Для сохранения карты введите имя файла и нажмите "Сохранить"
+    3. Для загрузки карты выберите файл из списка и нажмите "Загрузить"
+    4. Для удаления файла выберите его из списка и нажмите "Удалить"
+  `;
+  showNotification(helpText, 'info');
 }
 
 /**
@@ -165,112 +169,257 @@ async function updateFileList() {
 }
 
 let isSaving = false;
-let saveRequestCount = 0;
-let isSaveHandlerAdded = false;
+let saveAttempts = 0;
 let currentFileName = null;
 
-function saveMap() {
-    if (!isAuthenticated()) {
-        alert('Пожалуйста, войдите в систему для сохранения карты.');
-        return;
-    }
-    if (isSaving) {
-        console.log('Сохранение уже выполняется, игнорируем повторный запрос.');
-        return;
+/**
+ * Отображает уведомление в интерфейсе
+ * @param {string} message - Текст уведомления
+ * @param {string} type - Тип уведомления ('success' или 'error')
+ */
+function showNotification(message, type = 'success') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        border-radius: 4px;
+        color: white;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    `;
+    
+    if (type === 'success') {
+        notification.style.backgroundColor = '#4CAF50';
+    } else {
+        notification.style.backgroundColor = '#f44336';
     }
 
-    // Получаем имя файла из поля ввода
-    const fileNameInput = document.getElementById('save-file-name');
-    if (!fileNameInput || !fileNameInput.value.trim()) {
-        alert('Пожалуйста, введите название файла для сохранения');
-        return;
-    }
+    document.body.appendChild(notification);
+    
+    // Показываем уведомление
+    setTimeout(() => {
+        notification.style.opacity = '1';
+    }, 10);
 
-    const fileName = fileNameInput.value.trim();
-    isSaving = true;
-    saveRequestCount++;
-    console.log('Попытка сохранения номер:', saveRequestCount);
-    console.log('Сохранение файла:', fileName);
-    const geojsonData = exportToGeoJSON();
-    console.log('Данные для сохранения:', geojsonData);
-    fetch('http://127.0.0.1:3000/save', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ fileName, geojsonData }),
-        credentials: 'include'
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('Файл успешно сохранен:', data);
-        alert(data.message);
-        console.log('Обновление списка файлов после сохранения...');
-        updateFileList();
-        console.log('Список файлов обновлен после сохранения.');
-        isSaving = false;
-        console.log('Сохранение завершено, isSaving сброшен в false.');
-        // Отображение названия текущего файла в панели
-        document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
-    })
-    .catch(error => {
-        console.error('Ошибка при сохранении файла:', error);
-        alert('Произошла ошибка при сохранении файла.');
-        isSaving = false;
-        console.log('Сохранение завершено с ошибкой, isSaving сброшен в false.');
-    });
-}
-
-// Добавляем функцию для установки имени файла
-function setCurrentFileName(fileName) {
-    currentFileName = fileName;
-    if (document.getElementById('current-file')) {
-        document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
-    }
+    // Удаляем уведомление через 3 секунды
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 300);
+    }, 3000);
 }
 
 /**
- * Загружает сохраненное состояние карты
+ * Получает значение cookie по имени
+ * @param {string} name - Имя cookie
+ * @returns {string|null} - Значение cookie или null, если не найдено
  */
-async function loadMap() {
-    if (!isAuthenticated()) {
-        document.getElementById('error-message').textContent = 'Необходимо войти в систему';
-        return;
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+        return parts.pop().split(';').shift();
     }
+    return null;
+}
 
-    const fileName = document.getElementById('load-file-name').value;
-    if (!fileName) {
-        document.getElementById('error-message').textContent = 'Выберите файл для загрузки';
-        return;
-    }
-
+/**
+ * Проверяет доступность сервера
+ * @returns {Promise<boolean>}
+ */
+async function checkServerAvailability() {
     try {
-        console.log('Загрузка файла:', fileName);
-        const response = await fetch(`http://127.0.0.1:3000/load/${fileName}`, {
+        const response = await fetch('http://127.0.0.1:3000/health', {
             method: 'GET',
             credentials: 'include',
             headers: {
                 'Accept': 'application/json'
-            }
+            },
+            mode: 'cors'
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Сервер недоступен:', error);
+        return false;
+    }
+}
+
+/**
+ * Проверяет и обновляет токен при необходимости
+ * @returns {Promise<boolean>}
+ */
+async function checkAndRefreshToken() {
+    const token = getCookie('token');
+    if (!token) {
+        console.log('Токен отсутствует');
+        return false;
+    }
+
+    try {
+        const response = await fetch('http://127.0.0.1:3000/check-token', {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+                'Accept': 'application/json'
+            },
+            mode: 'cors'
+        });
+
+        if (response.status === 401) {
+            console.log('Токен истек, требуется повторная аутентификация');
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Ошибка при проверке токена:', error);
+        return false;
+    }
+}
+
+// Функция для получения GeoJSON данных карты
+function getGeoJSONForSave() {
+    if (!state || !state.drawnItems) {
+        console.error('Ошибка: state или drawnItems не определены');
+        return {
+            type: 'FeatureCollection',
+            features: []
+        };
+    }
+
+    try {
+        const geojsonData = state.drawnItems.toGeoJSON();
+        console.log('GeoJSON для сохранения:', geojsonData);
+        return geojsonData;
+    } catch (error) {
+        console.error('Ошибка при получении GeoJSON:', error);
+        return {
+            type: 'FeatureCollection',
+            features: []
+        };
+    }
+}
+
+async function saveMap() {
+    if (isSaving) {
+        console.log('Сохранение уже выполняется, пропускаем');
+        return;
+    }
+    isSaving = true;
+    console.log('Попытка сохранения номер:', saveAttempts + 1);
+    saveAttempts++;
+
+    const fileNameInput = document.getElementById('save-file-name');
+    if (!fileNameInput) {
+        showNotification('Ошибка: поле ввода имени файла не найдено', 'error');
+        isSaving = false;
+        return;
+    }
+
+    const fileName = fileNameInput.value.trim();
+    console.log('Сохранение файла:', fileName);
+
+    if (!fileName) {
+        showNotification('Введите имя файла', 'error');
+        isSaving = false;
+        return;
+    }
+
+    const geojsonData = getGeoJSONForSave();
+    console.log('Данные для сохранения:', geojsonData);
+
+    try {
+        const response = await fetch('http://127.0.0.1:3000/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                fileName: fileName,
+                geojsonData: geojsonData
+            })
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Ошибка загрузки:', response.status, errorText);
-            throw new Error('Ошибка загрузки');
+            if (response.status === 401) {
+                showNotification('Сессия истекла, требуется повторная авторизация', 'error');
+                showLoginForm();
+                return;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
-        const geojsonData = await response.json();
-        state.drawnItems.clearLayers();
-        importFromGeoJSON(geojsonData);
+
+        const result = await response.json();
+        console.log('Файл успешно сохранен:', result);
+        showNotification('Файл успешно сохранен', 'success');
+        await updateFileList();
     } catch (error) {
-        console.error('Ошибка загрузки:', error);
-        document.getElementById('error-message').textContent = 'Ошибка загрузки карты';
+        console.error('Ошибка при сохранении файла:', error);
+        showNotification('Ошибка при сохранении файла', 'error');
+    } finally {
+        isSaving = false;
+        console.log('Сохранение завершено, isSaving сброшен в false.');
+    }
+}
+
+async function deleteFile() {
+    const selectedFile = document.querySelector('.file-item.selected');
+    if (!selectedFile) {
+        showNotification('Выберите файл для удаления', 'error');
+        return;
+    }
+
+    const fileName = selectedFile.dataset.filename;
+    console.log('Попытка удаления файла:', fileName);
+
+    if (!confirm(`Вы уверены, что хотите удалить файл "${fileName}"?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`http://127.0.0.1:3000/delete/${fileName}`, {
+            method: 'DELETE',
+            headers: {
+                'Accept': 'application/json'
+            },
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                showNotification('Сессия истекла, требуется повторная авторизация', 'error');
+                showLoginForm();
+                return;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Файл успешно удален:', result);
+        showNotification('Файл успешно удален', 'success');
+        await updateFileList();
+    } catch (error) {
+        console.error('Ошибка при удалении файла:', error);
+        showNotification('Ошибка при удалении файла', 'error');
+    }
+}
+
+// Добавляем обработчик для кнопки удаления файла
+function initFileControls() {
+    const deleteButton = document.getElementById('delete-file');
+    if (deleteButton) {
+        deleteButton.addEventListener('click', () => {
+            const fileName = document.getElementById('load-file-name').value;
+            deleteFile(fileName);
+        });
     }
 }
 
@@ -309,7 +458,6 @@ function initUI() {
         // Удаляем все существующие обработчики событий для кнопки сохранения
         saveButton.removeEventListener('click', saveMap);
         saveButton.addEventListener('click', saveMap);
-        isSaveHandlerAdded = true;
         console.log('Обработчик для кнопки сохранения добавлен (удалены все предыдущие обработчики)');
     } else {
         console.error('Кнопка сохранения не найдена в DOM');
@@ -318,6 +466,7 @@ function initUI() {
     document.getElementById('load-map').addEventListener('click', loadMap);
     
     initNameEditor();
+    initFileControls();
 }
 
 /**
@@ -369,130 +518,90 @@ function initNameEditor() {
     }
 }
 
-// Обработчик для кнопки "Загрузить"
-const loadButton = document.getElementById('load-map');
-if (loadButton) {
-    loadButton.removeEventListener('click', loadMap); // Удаляем существующий обработчик, если есть
-    loadButton.addEventListener('click', async () => {
-        try {
-            console.log('Нажата кнопка "Загрузить"');
-            const fileName = document.getElementById('load-file-name').value;
-            if (!fileName) {
-                console.error('Ошибка: Не выбран файл для загрузки');
-                alert('Пожалуйста, выберите файл для загрузки.');
+// Функция для загрузки карты
+async function loadMap(fileName) {
+    if (!fileName || typeof fileName !== 'string') {
+        console.error('Некорректное имя файла:', fileName);
+        showNotification('Ошибка: некорректное имя файла', 'error');
+        return;
+    }
+
+    console.log('Загрузка файла:', fileName);
+    try {
+        const response = await fetch(`http://127.0.0.1:3000/load/${encodeURIComponent(fileName)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            },
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                showNotification('Сессия истекла, требуется повторная авторизация', 'error');
+                showLoginForm();
                 return;
             }
-            console.log('Попытка загрузки файла:', fileName);
-            const response = await fetch(`http://127.0.0.1:3000/load/${fileName}`, {
-                method: 'GET',
-                credentials: 'include',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                console.error('Ошибка загрузки файла:', response.status, response.statusText);
-                const errorText = await response.text();
-                console.error('Текст ошибки от сервера:', errorText);
-                alert(`Ошибка загрузки файла: ${response.status}. ${errorText}`);
-                return;
-            }
-
-            const mapData = await response.json();
-            console.log('Данные карты успешно загружены:', mapData);
-            if (typeof importFromGeoJSON === 'function') {
-                // Проверяем, является ли поле features строкой, и если да, преобразуем в массив
-                if (mapData.type === 'FeatureCollection' && typeof mapData.features === 'string') {
-                    try {
-                        mapData.features = JSON.parse(mapData.features);
-                        console.log('Поле features преобразовано из строки в массив:', mapData.features);
-                    } catch (e) {
-                        console.error('Ошибка при парсинге поля features:', e);
-                        alert('Ошибка формата данных карты.');
-                        return;
-                    }
-                }
-                // Проверяем, является ли features массивом перед передачей в importFromGeoJSON
-                if (Array.isArray(mapData.features)) {
-                    state.drawnItems.clearLayers(); // Очищаем существующие слои перед загрузкой новых данных
-                    importFromGeoJSON(mapData);
-                    console.log('Данные карты переданы в функцию importFromGeoJSON');
-                } else {
-                    console.error('Ошибка: Поле features не является массивом', mapData.features);
-                    alert('Ошибка формата данных карты: features не является массивом.');
-                }
-            } else {
-                console.error('Ошибка: Функция importFromGeoJSON не определена');
-                alert('Функция загрузки данных карты не найдена.');
-            }
-        } catch (error) {
-            console.error('Исключение при загрузке файла:', error);
-            alert('Произошла ошибка при загрузке файла.');
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-    });
-} else {
-    console.error('Кнопка загрузки не найдена в DOM');
+
+        const data = await response.json();
+        console.log('Получены данные:', data);
+
+        if (!data || !data.geojsonData) {
+            throw new Error('Некорректный формат данных');
+        }
+
+        // Очищаем текущие элементы
+        if (state && state.drawnItems) {
+            state.drawnItems.clear();
+        }
+
+        // Загружаем новые данные
+        L.geoJSON(data.geojsonData, {
+            onEachFeature: function(feature, layer) {
+                if (feature.properties && feature.properties.popupContent) {
+                    layer.bindPopup(feature.properties.popupContent);
+                }
+            }
+        }).addTo(state.drawnItems);
+
+        showNotification('Файл успешно загружен', 'success');
+    } catch (error) {
+        console.error('Ошибка при загрузке файла:', error);
+        showNotification('Ошибка при загрузке файла', 'error');
+    }
 }
 
-// Обработчик для кнопки "Удалить выбранное сохранение"
-const deleteButton = document.getElementById('delete-map');
-if (deleteButton) {
-    deleteButton.addEventListener('click', async () => {
-        try {
-            console.log('Нажата кнопка "Удалить выбранное сохранение"');
-            const fileName = document.getElementById('load-file-name').value;
-            if (!fileName) {
-                console.error('Ошибка: Не выбран файл для удаления');
-                alert('Пожалуйста, выберите файл для удаления.');
-                return;
-            }
-            console.log('Попытка удаления файла:', fileName);
-            if (confirm(`Вы уверены, что хотите удалить файл ${fileName}?`)) {
-                const response = await fetch(`http://127.0.0.1:3000/delete/${fileName}`, {
-                    method: 'DELETE',
-                    credentials: 'include',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    console.error('Ошибка удаления файла:', response.status, response.statusText);
-                    const errorText = await response.text();
-                    console.error('Текст ошибки от сервера:', errorText);
-                    alert(`Ошибка удаления файла: ${response.status}. ${errorText}`);
-                    return;
-                }
-
-                const result = await response.json();
-                console.log('Файл успешно удален:', result);
-                alert('Файл успешно удален!');
-                updateFileList(); // Обновляем список файлов после удаления
-            } else {
-                console.log('Удаление файла отменено пользователем');
-            }
-        } catch (error) {
-            console.error('Исключение при удалении файла:', error);
-            alert('Произошла ошибка при удалении файла.');
-        }
-    });
-} else {
-    console.error('Кнопка удаления не найдена в DOM');
+// Функция для отображения формы авторизации
+function showLoginForm() {
+    document.getElementById('auth-container').style.display = 'block';
+    document.getElementById('map-container').style.display = 'none';
+    // Перезагружаем страницу для корректной инициализации
+    window.location.reload();
 }
 
-export { 
-    updateToolButtons, 
-    showHelp, 
-    updateCoordinates, 
-    initCoordinates, 
-    clearAllFeatures, 
-    updateFileList, 
-    saveMap, 
-    loadMap,
+// Добавляем функцию для установки имени файла
+function setCurrentFileName(fileName) {
+    currentFileName = fileName;
+    const currentFileElement = document.getElementById('current-file');
+    if (currentFileElement) {
+        currentFileElement.textContent = 'Текущий файл: ' + fileName;
+    }
+}
+
+// Экспортируем все необходимые функции
+export {
     initUI,
-    initNameEditor,
-    setCurrentFileName
+    updateFileList,
+    showNotification,
+    saveMap,
+    deleteFile,
+    showHelp,
+    updateToolButtons,
+    updateCoordinates,
+    initCoordinates,
+    clearAllFeatures,
+    showLoginForm,
+    loadMap
 };

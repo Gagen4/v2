@@ -262,10 +262,10 @@ app.get('/load/:fileName', authenticateToken, async (req, res) => {
 // Список файлов
 app.get('/files', authenticateToken, async (req, res) => {
     const { id: userId } = req.user;
-<<<<<<< HEAD
+
     try {
         const files = await db.getFilesByUserId(userId);
-=======
+
     console.log('Запрос списка файлов от пользователя:', req.user.email);
     
     try {

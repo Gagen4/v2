@@ -22,6 +22,11 @@ function setupAuthListeners() {
     const updateRoleBtn = document.getElementById('admin-update-role');
     let isLoginMode = true;
 
+    // Предотвращаем стандартное поведение формы
+    document.querySelector('.auth-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+    });
+
     switchAuth.addEventListener('click', () => {
         isLoginMode = !isLoginMode;
         document.querySelector('.auth-form h2').textContent = isLoginMode ? 'Вход' : 'Регистрация';
@@ -31,7 +36,8 @@ function setupAuthListeners() {
         hideError();
     });
 
-    authSubmit.addEventListener('click', async () => {
+    authSubmit.addEventListener('click', async (e) => {
+        e.preventDefault(); // Предотвращаем стандартное поведение кнопки
         const email = document.getElementById('username').value;
         const password = document.getElementById('password').value;
         
@@ -129,7 +135,10 @@ async function register(email, password) {
             throw new Error('Ошибка аутентификации после регистрации');
         }
 
-        currentUser = { email };
+        currentUser = { 
+            email,
+            isAdmin: data.isAdmin
+        };
         updateAuthUI();
         dispatchAuthSuccess();
     } catch (error) {
@@ -168,12 +177,14 @@ async function checkEmailExistence(email) {
  */
 async function login(email, password) {
     try {
+        console.log('Начало процесса входа для:', email);
         if (!email || !password) {
             throw new Error('Заполните все поля');
         }
         if (!isValidEmail(email)) {
             throw new Error('Некорректный формат email');
         }
+        console.log('Отправка запроса на вход...');
         const response = await fetch('http://127.0.0.1:3000/login', {
             method: 'POST',
             credentials: 'include',
@@ -184,7 +195,9 @@ async function login(email, password) {
             body: JSON.stringify({ email, password }),
         });
 
+        console.log('Получен ответ от сервера:', response.status, response.statusText);
         const data = await response.json();
+        console.log('Данные ответа:', data);
         
         // Проверяем наличие cookie после входа
         const cookies = document.cookie;
@@ -199,27 +212,44 @@ async function login(email, password) {
             throw new Error(data.error || 'Ошибка входа');
         }
 
+        console.log('Установка currentUser...');
         // Сразу устанавливаем currentUser
-        currentUser = { email };
-        updateAuthUI();
-        dispatchAuthSuccess();
+        currentUser = { 
+            email,
+            isAdmin: data.isAdmin
+        };
+        console.log('currentUser установлен:', currentUser);
 
-        // Проверяем аутентификацию после установки UI
+        // Проверяем аутентификацию перед обновлением UI
         try {
-            const verifyResponse = await fetch('http://127.0.0.1:3000/files', {
+            console.log('Проверка аутентификации...');
+            const verifyResponse = await fetch('http://127.0.0.1:3000/user/info', {
                 credentials: 'include',
                 headers: {
                     'Accept': 'application/json'
                 }
             });
 
-            console.log('Ответ на проверку аутентификации после входа:', verifyResponse.status, verifyResponse.statusText);
+            console.log('Ответ на проверку аутентификации:', verifyResponse.status, verifyResponse.statusText);
             if (!verifyResponse.ok) {
                 throw new Error('Ошибка аутентификации после входа');
             }
+
+            const userInfo = await verifyResponse.json();
+            console.log('Информация о пользователе:', userInfo);
+            
+            // Обновляем currentUser с актуальной информацией
+            currentUser = {
+                email: userInfo.email,
+                isAdmin: userInfo.isAdmin
+            };
+            
+            console.log('Обновление UI...');
+            updateAuthUI();
+            dispatchAuthSuccess();
         } catch (error) {
             console.error('Ошибка проверки аутентификации:', error);
-            // Не выбрасываем ошибку, так как вход уже выполнен
+            throw error;
         }
     } catch (error) {
         console.error('Ошибка при входе:', error);
@@ -333,9 +363,11 @@ function updateAuthUI() {
         
         // Показываем или скрываем админ-панели
         if (adminFilePanel && adminRolePanel) {
+            console.log('Обновление админ-панелей, isAdmin:', currentUser.isAdmin);
             adminFilePanel.style.display = currentUser.isAdmin ? 'block' : 'none';
             adminRolePanel.style.display = currentUser.isAdmin ? 'block' : 'none';
             if (currentUser.isAdmin) {
+                console.log('Загрузка списка пользователей для админа');
                 loadUserList();
             }
         }

@@ -743,4 +743,11 @@ export {
   calculateLineLength,
   calculatePolygonArea,
   showFeaturePopup // экспортируем для тестов/расширения
+    setupMapHandlers,
+    finishDrawing,
+    resetDrawing,
+    exportToGeoJSON,
+    importFromGeoJSON,
+    calculateLineLength,
+    calculatePolygonArea
 };

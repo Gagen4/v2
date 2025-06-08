@@ -61,11 +61,11 @@ async function loadAdminFileList() {
             if (select) {
                 select.innerHTML = '<option value="">Select user file...</option>';
                 files.forEach(file => {
-                    if (file.username && file.fileName) {
+                    if (file.email && file.fileName) {
                         const option = document.createElement('option');
-                        const fileValue = `${file.username}/${file.fileName}`;
+                        const fileValue = `${file.email}/${file.fileName}`;
                         option.value = fileValue;
-                        option.textContent = `${file.username} - ${file.fileName}`;
+                        option.textContent = `${file.email} - ${file.fileName} (${file.createdAt || 'No date'})`;
                         select.appendChild(option);
                         console.log('Добавлен файл в список:', fileValue);
                     } else {

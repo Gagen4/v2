@@ -3,7 +3,6 @@
  * @module drawing
  */
 import { state } from './mapInit.js';
-import { selectObject } from './selection.js';
 import { saveMapData } from './api.js';
 
 // Таймер для дебаунсинга сохранения
@@ -16,8 +15,6 @@ const MIN_SAVE_INTERVAL = 2000; // Минимальный интервал ме�
  */
 function setupMapHandlers() {
   if (!state.map) return;
-  
-  // Предотвращаем отправку формы по умолчанию
   document.addEventListener('submit', (e) => {
     e.preventDefault();
   });
@@ -34,7 +31,35 @@ function setupMapHandlers() {
       addPolygonPoint(e.latlng);
     } else if (state.currentTool === 'delete') {
       e.originalEvent.preventDefault();
-      selectObject(e.latlng);
+      // ...delete logic...
+    } else if (!state.currentTool) {
+      // Если инструмент не выбран — ищем объект под курсором и показываем popup
+      let found = false;
+      state.drawnItems.eachLayer((layer) => {
+        if (found) return;
+        if (layer instanceof L.Marker) {
+          if (layer.getLatLng().distanceTo(e.latlng) < 20) {
+            showFeaturePopup(layer);
+            found = true;
+          }
+        } else if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+          // Проверка попадания на линию
+          const latlngs = layer.getLatLngs();
+          for (let i = 0; i < latlngs.length - 1; i++) {
+            const dist = L.GeometryUtil.distanceSegment(state.map, e.latlng, latlngs[i], latlngs[i + 1]);
+            if (dist < 10) {
+              showFeaturePopup(layer);
+              found = true;
+              break;
+            }
+          }
+        } else if (layer instanceof L.Polygon) {
+          if (layer.getBounds().contains(e.latlng)) {
+            showFeaturePopup(layer);
+            found = true;
+          }
+        }
+      });
     }
   });
 }
@@ -103,7 +128,7 @@ function addMarker(latlng) {
     // Добавляем обработчики событий для маркера
     marker.on('click', (e) => {
       e.originalEvent?.preventDefault();
-      selectObject(marker);
+      showFeaturePopup(marker);
     });
     
     // Не сохраняем автоматически при перетаскивании
@@ -217,7 +242,7 @@ function finishDrawing(state) {
       </div>
     `;
     line.bindPopup(popupContent).openPopup();
-    line.on('click', () => selectObject(line));
+    line.on('click', () => showFeaturePopup(line));
     setTimeout(() => {
       const saveButton = document.getElementById('popup-save-name');
       const unitSelect = document.getElementById('unit-select');
@@ -251,6 +276,7 @@ function finishDrawing(state) {
       }
     }, 100);
   } else if (state.currentTool === 'polygon' && state.tempPoints.length >= 3) {
+    // --- Новый код для редактируемого полигона ---
     const polygon = L.polygon([state.tempPoints], { color: 'green' }).addTo(state.drawnItems);
     polygon.feature = { type: 'Feature', properties: { name: 'Полигон' } };
     const area = calculatePolygonArea(polygon.getLatLngs()[0]);
@@ -267,7 +293,11 @@ function finishDrawing(state) {
       </div>
     `;
     polygon.bindPopup(popupContent).openPopup();
-    polygon.on('click', () => selectObject(polygon));
+    
+    // Добавляем возможность перетаскивать точки полигона
+    enablePolygonVertexDragging(polygon);
+
+    polygon.on('click', () => showFeaturePopup(polygon));
     setTimeout(() => {
       const saveButton = document.getElementById('popup-save-name');
       const unitSelect = document.getElementById('unit-select');
@@ -307,6 +337,53 @@ function finishDrawing(state) {
     state.tempLayer = null;
   }
   state.tempPoints = [];
+}
+
+/**
+ * Включает возможность перетаскивать вершины полигона.
+ * @param {L.Polygon} polygon
+ */
+function enablePolygonVertexDragging(polygon) {
+  if (!polygon || !(polygon instanceof L.Polygon)) return;
+  const latlngs = polygon.getLatLngs()[0];
+  const markers = [];
+
+  latlngs.forEach((latlng, idx) => {
+    const marker = L.marker(latlng, {
+      draggable: true,
+      icon: L.divIcon({ className: 'vertex-drag-icon', iconSize: [12, 12], html: '<div style="width:12px;height:12px;border-radius:50%;background:#4CAF50;border:2px solid #fff;"></div>' })
+    }).addTo(state.map);
+
+    marker.on('drag', function (e) {
+      latlngs[idx].lat = e.target.getLatLng().lat;
+      latlngs[idx].lng = e.target.getLatLng().lng;
+      polygon.setLatLngs([latlngs]);
+      // Обновляем площадь в popup если открыт
+      if (polygon.isPopupOpen()) {
+        const area = calculatePolygonArea(latlngs);
+        const areaSpan = document.getElementById('polygon-area');
+        if (areaSpan) {
+          const unitSelect = document.getElementById('unit-select');
+          if (unitSelect && unitSelect.value === 'kilometers') {
+            areaSpan.textContent = `${(area / 1000000).toFixed(2)} км²`;
+          } else {
+            areaSpan.textContent = `${area.toFixed(2)} м²`;
+          }
+        }
+      }
+    });
+
+    marker.on('dragend', function () {
+      // Можно добавить автосохранение или другие действия после перетаскивания
+    });
+
+    markers.push(marker);
+  });
+
+  // Удаляем маркеры при удалении полигона
+  polygon.on('remove', () => {
+    markers.forEach(m => state.map.removeLayer(m));
+  });
 }
 
 /**
@@ -407,7 +484,7 @@ function importFromGeoJSON(geojson) {
           marker.bindPopup(feature.properties.name);
         }
         
-        marker.on('click', () => selectObject(marker));
+        marker.on('click', () => showFeaturePopup(marker));
         marker.on('dragend', () => saveCurrentState());
       } else if (feature.geometry.type === 'LineString') {
         const coordinates = feature.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
@@ -464,7 +541,7 @@ function importFromGeoJSON(geojson) {
             }, 100);
           });
         }
-        line.on('click', () => selectObject(line));
+        line.on('click', () => showFeaturePopup(line));
       } else if (feature.geometry.type === 'Polygon') {
         const coordinates = feature.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]);
         const polygon = L.polygon([coordinates], { color: 'green' })
@@ -520,12 +597,99 @@ function importFromGeoJSON(geojson) {
             }, 100);
           });
         }
-        polygon.on('click', () => selectObject(polygon));
+        polygon.on('click', () => showFeaturePopup(polygon));
       }
     } catch (error) {
       console.error('Ошибка при импорте объекта:', error);
     }
   });
+}
+
+/**
+ * Показывает popup с названием, длиной/площадью для слоя (линии/полигона/маркера)
+ * @param {L.Layer} layer
+ */
+function showFeaturePopup(layer) {
+  if (!layer) return;
+  let name = (layer.feature && layer.feature.properties && layer.feature.properties.name) || '';
+  let popupContent = '';
+  let extraInfo = '';
+
+  if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+    const length = calculateLineLength(layer.getLatLngs());
+    extraInfo = `
+      <b>Длина:</b> <span id="line-length">${length.toFixed(2)} м</span><br>
+      <select id="unit-select" style="margin-top: 5px;">
+        <option value="meters">Метры</option>
+        <option value="kilometers">Километры</option>
+      </select>
+    `;
+  } else if (layer instanceof L.Polygon) {
+    const area = calculatePolygonArea(layer.getLatLngs()[0]);
+    extraInfo = `
+      <b>Площадь:</b> <span id="polygon-area">${area.toFixed(2)} м²</span><br>
+      <select id="unit-select" style="margin-top: 5px;">
+        <option value="meters">Метры</option>
+        <option value="kilometers">Километры</option>
+      </select>
+    `;
+  }
+
+  popupContent = `
+    <div>
+      <b>Название:</b> <input type="text" id="popup-name-input" value="${name}" style="width: 150px; padding: 5px; margin-bottom: 5px;"><br>
+      ${extraInfo}
+      <button id="popup-save-name" style="padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Сохранить</button>
+    </div>
+  `;
+
+  layer.bindPopup(popupContent).openPopup();
+
+  setTimeout(() => {
+    const saveButton = document.getElementById('popup-save-name');
+    if (saveButton) {
+      saveButton.addEventListener('click', () => {
+        const nameInput = document.getElementById('popup-name-input');
+        if (nameInput) {
+          const newName = nameInput.value.trim();
+          if (newName) {
+            if (!layer.feature) layer.feature = { type: 'Feature', properties: {} };
+            layer.feature.properties.name = newName;
+            layer.closePopup();
+          }
+        }
+      });
+    }
+    const unitSelect = document.getElementById('unit-select');
+    if (unitSelect && layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+      const length = calculateLineLength(layer.getLatLngs());
+      unitSelect.addEventListener('change', () => {
+        const unit = unitSelect.value;
+        const lengthSpan = document.getElementById('line-length');
+        if (lengthSpan) {
+          if (unit === 'meters') {
+            lengthSpan.textContent = `${length.toFixed(2)} м`;
+          } else {
+            lengthSpan.textContent = `${(length / 1000).toFixed(2)} км`;
+          }
+        }
+      });
+    }
+    if (unitSelect && layer instanceof L.Polygon) {
+      const area = calculatePolygonArea(layer.getLatLngs()[0]);
+      unitSelect.addEventListener('change', () => {
+        const unit = unitSelect.value;
+        const areaSpan = document.getElementById('polygon-area');
+        if (areaSpan) {
+          if (unit === 'meters') {
+            areaSpan.textContent = `${area.toFixed(2)} м²`;
+          } else {
+            areaSpan.textContent = `${(area / 1000000).toFixed(2)} км²`;
+          }
+        }
+      });
+    }
+  }, 100);
 }
 
 /**
@@ -547,20 +711,36 @@ function calculateLineLength(latlngs) {
  * @returns {number} Площадь полигона в квадратных метрах.
  */
 function calculatePolygonArea(latlngs) {
+  // Используем проекцию координат в метры (Web Mercator) и формулу Гаусса (Shoelace)
   if (latlngs.length < 3) return 0;
-  
-  let area = 0;
-  const R = 6371000; // Радиус Земли в метрах
-  
-  for (let i = 0, j = latlngs.length - 1; i < latlngs.length; j = i++) {
-    const lat1 = latlngs[j].lat * Math.PI / 180;
-    const lat2 = latlngs[i].lat * Math.PI / 180;
-    const dLon = (latlngs[i].lng - latlngs[j].lng) * Math.PI / 180;
-    area += (latlngs[j].lng - latlngs[i].lng) * (2 + Math.sin(lat1) + Math.sin(lat2));
+
+  // Переводим координаты в метры через проекцию Web Mercator
+  function project(latlng) {
+    const R = 6378137;
+    const x = R * latlng.lng * Math.PI / 180;
+    const y = R * Math.log(Math.tan(Math.PI / 4 + latlng.lat * Math.PI / 360));
+    return { x, y };
   }
-  
-  area = area * R * R / 2;
-  return Math.abs(area);
+
+  let area = 0;
+  for (let i = 0, len = latlngs.length, j = len - 1; i < len; j = i++) {
+    const p1 = project(latlngs[j]);
+    const p2 = project(latlngs[i]);
+    area += (p1.x * p2.y - p2.x * p1.y);
+  }
+  return Math.abs(area / 2);
 }
 
-export { setupMapHandlers, addMarker, addLinePoint, addPolygonPoint, finishDrawing, resetDrawing, exportToGeoJSON, importFromGeoJSON, calculateLineLength, calculatePolygonArea };
+export {
+  setupMapHandlers,
+  addMarker,
+  addLinePoint,
+  addPolygonPoint,
+  finishDrawing,
+  resetDrawing,
+  exportToGeoJSON,
+  importFromGeoJSON,
+  calculateLineLength,
+  calculatePolygonArea,
+  showFeaturePopup // экспортируем для тестов/расширения
+};

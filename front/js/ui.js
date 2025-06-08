@@ -290,7 +290,7 @@ function initUI() {
     console.log('Инициализация UI...');
     initCoordinates();
     updateFileList();
-    
+
     document.getElementById('add-marker').addEventListener('click', () => {
         state.currentTool = 'marker';
         updateToolButtons(state);
@@ -312,7 +312,19 @@ function initUI() {
         showHelp('Кликните на объект, чтобы удалить его');
     });
     document.getElementById('clear-all').addEventListener('click', clearAllFeatures);
-    
+
+    // Добавляем обработчик для кнопки отмены выбора инструмента
+    const cancelToolBtn = document.getElementById('cancel-tool');
+    if (cancelToolBtn) {
+        cancelToolBtn.addEventListener('click', () => {
+            state.currentTool = null;
+            updateToolButtons(state);
+            showHelp('Выбор инструмента отменён. Теперь можно кликать по объектам для просмотра их данных.');
+        });
+    } else {
+        console.error('Кнопка отмены выбора инструмента не найдена в DOM');
+    }
+
     const saveButton = document.getElementById('save-map');
     if (saveButton) {
         // Удаляем все существующие обработчики событий для кнопки сохранения
@@ -323,9 +335,9 @@ function initUI() {
     } else {
         console.error('Кнопка сохранения не найдена в DOM');
     }
-    
+
     document.getElementById('load-map').addEventListener('click', loadMap);
-    
+
     initNameEditor();
 }
 

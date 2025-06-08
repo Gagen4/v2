@@ -123,6 +123,10 @@ async function updateFileList() {
             return;
         }
         let files = await response.json();
+        // Исправление: если сервер возвращает массив объектов, преобразуем к массиву имён файлов
+        if (Array.isArray(files) && files.length > 0 && typeof files[0] === 'object' && files[0].file_name) {
+            files = files.map(f => f.file_name);
+        }
         // Проверяем, что сервер вернул массив
         if (!Array.isArray(files)) {
             console.warn('Сервер вернул не массив файлов, files:', files);
@@ -142,6 +146,16 @@ async function updateFileList() {
                     const li = document.createElement('li');
                     li.textContent = fileName;
                     li.setAttribute('data-file-name', fileName);
+                    li.classList.add('file-item');
+                    // Добавляем обработчик выбора файла по клику
+                    li.addEventListener('click', function() {
+                        // Снимаем выделение со всех
+                        fileList.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+                        li.classList.add('selected');
+                        // Синхронизируем select
+                        const fileSelect = document.getElementById('load-file-name');
+                        if (fileSelect) fileSelect.value = fileName;
+                    });
                     fileList.appendChild(li);
                 });
             }
@@ -158,6 +172,19 @@ async function updateFileList() {
                     option.value = fileName;
                     option.textContent = fileName;
                     fileSelect.appendChild(option);
+                });
+                // При изменении select выделяем соответствующий li
+                fileSelect.addEventListener('change', function() {
+                    const selected = fileSelect.value;
+                    if (fileList) {
+                        fileList.querySelectorAll('.file-item').forEach(li => {
+                            if (li.getAttribute('data-file-name') === selected) {
+                                li.classList.add('selected');
+                            } else {
+                                li.classList.remove('selected');
+                            }
+                        });
+                    }
                 });
             }
         } else {
@@ -343,22 +370,19 @@ function getGeoJSONForSave() {
     }
 }
 
-    async function deleteFile() {
-    const selectedFile = document.querySelector('.file-item.selected');
-    if (!selectedFile) {
+async function deleteFile(fileName) {
+    // Исправлено: получение имени файла из аргумента, а не из .file-item.selected
+    if (!fileName || typeof fileName !== 'string') {
         showNotification('Выберите файл для удаления', 'error');
         return;
     }
 
-    const fileName = selectedFile.dataset.filename;
     console.log('Попытка удаления файла:', fileName);
 
-    if (!confirm(`Вы уверены, что хотите удалить файл "${fileName}"?`)) {
-        return;
-    }
+    // Удалено подтверждение действия
 
     try {
-        const response = await fetch(`http://127.0.0.1:3000/delete/${fileName}`, {
+        const response = await fetch(`http://127.0.0.1:3000/delete/${encodeURIComponent(fileName)}`, {
             method: 'DELETE',
             headers: {
                 'Accept': 'application/json'
@@ -389,8 +413,19 @@ function getGeoJSONForSave() {
 function initFileControls() {
     const deleteButton = document.getElementById('delete-file');
     if (deleteButton) {
-        deleteButton.addEventListener('click', () => {
-            const fileName = document.getElementById('load-file-name').value;
+        // Удаляем все предыдущие обработчики
+        const newDeleteButton = deleteButton.cloneNode(true);
+        deleteButton.parentNode.replaceChild(newDeleteButton, deleteButton);
+        newDeleteButton.addEventListener('click', () => {
+            // Получаем имя файла из select или выделенного li
+            let fileName = document.getElementById('load-file-name').value;
+            if (!fileName) {
+                // Если select пуст, ищем выделенный li
+                const selectedLi = document.querySelector('#file-list .file-item.selected');
+                if (selectedLi) {
+                    fileName = selectedLi.getAttribute('data-file-name');
+                }
+            }
             deleteFile(fileName);
         });
     }
@@ -407,22 +442,22 @@ function initUI() {
     document.getElementById('add-marker').addEventListener('click', () => {
         state.currentTool = 'marker';
         updateToolButtons(state);
-        showHelp('Кликните на карте, чтобы добавить маркер');
+        
     });
     document.getElementById('add-line').addEventListener('click', () => {
         state.currentTool = 'line';
         updateToolButtons(state);
-        showHelp('Кликните на карте, чтобы добавить точки линии. Нажмите Esc для завершения.');
+        
     });
     document.getElementById('add-polygon').addEventListener('click', () => {
         state.currentTool = 'polygon';
         updateToolButtons(state);
-        showHelp('Кликните на карте, чтобы добавить точки полигона. Нажмите Esc для завершения.');
+        
     });
     document.getElementById('delete-object').addEventListener('click', () => {
         state.currentTool = 'delete';
         updateToolButtons(state);
-        showHelp('Кликните на объект, чтобы удалить его');
+        
     });
     document.getElementById('clear-all').addEventListener('click', clearAllFeatures);
 
@@ -432,7 +467,7 @@ function initUI() {
         cancelToolBtn.addEventListener('click', () => {
             state.currentTool = null;
             updateToolButtons(state);
-            showHelp('Выбор инструмента отменён. Теперь можно кликать по объектам для просмотра их данных.');
+            
         });
     } else {
         console.error('Кнопка отмены выбора инструмента не найдена в DOM');
@@ -448,10 +483,53 @@ function initUI() {
         console.error('Кнопка сохранения не найдена в DOM');
     }
 
-    document.getElementById('load-map').addEventListener('click', loadMap);
+    // Исправлено: передавать имя файла в loadMap только из select, а не событие
+    const loadButton = document.getElementById('load-map');
+    if (loadButton) {
+        loadButton.addEventListener('click', () => {
+            const fileName = document.getElementById('load-file-name').value;
+            loadMap(fileName);
+        });
+    } else {
+        console.error('Кнопка загрузки не найдена в DOM');
+    }
 
     initNameEditor();
     initFileControls();
+
+    // Исправлено: обработчик для удаления объектов с карты по клику при активном инструменте "delete"
+    if (state.map && state.drawnItems) {
+        state.map.off('click', handleDeleteObjectClick);
+        state.map.on('click', handleDeleteObjectClick);
+    } else {
+        // Если карта еще не инициализирована, добавим обработчик после инициализации карты
+        document.addEventListener('DOMContentLoaded', () => {
+            if (state.map && state.drawnItems) {
+                state.map.off('click', handleDeleteObjectClick);
+                state.map.on('click', handleDeleteObjectClick);
+            }
+        });
+    }
+}
+
+// Функция-обработчик для удаления объектов с карты по клику
+function handleDeleteObjectClick(e) {
+    if (state.currentTool !== 'delete') return;
+    let foundLayer = null;
+    state.drawnItems.eachLayer(layer => {
+        // Для маркеров
+        if (layer instanceof L.Marker && layer.getLatLng && layer.getLatLng().distanceTo(e.latlng) < 10) {
+            foundLayer = layer;
+        }
+        // Для линий и полигонов
+        if (!foundLayer && (layer instanceof L.Polyline || layer instanceof L.Polygon) && layer.getBounds && layer.getBounds().contains(e.latlng)) {
+            foundLayer = layer;
+        }
+    });
+    if (foundLayer) {
+        state.drawnItems.removeLayer(foundLayer);
+        showHelp('Объект удалён');
+    }
 }
 
 /**
@@ -533,25 +611,27 @@ async function loadMap(fileName) {
         const data = await response.json();
         console.log('Получены данные:', data);
 
-        if (!data || !data.geojsonData) {
-            throw new Error('Некорректный формат данных');
-        }
-
-        // Очищаем текущие элементы
-        if (state && state.drawnItems) {
-            state.drawnItems.clear();
-        }
-
-        // Загружаем новые данные
-        L.geoJSON(data.geojsonData, {
-            onEachFeature: function(feature, layer) {
-                if (feature.properties && feature.properties.popupContent) {
-                    layer.bindPopup(feature.properties.popupContent);
-                }
+        // Исправлено: поддержка формата FeatureCollection (GeoJSON)
+        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features)) {
+            if (state && state.drawnItems) {
+                state.drawnItems.clearLayers();
             }
-        }).addTo(state.drawnItems);
+            importFromGeoJSON(data);
+            showNotification('Файл успешно загружен', 'success');
+            return;
+        }
 
-        showNotification('Файл успешно загружен', 'success');
+        // Старый формат (если вдруг)
+        if (data && data.geojsonData && data.geojsonData.type === 'FeatureCollection') {
+            if (state && state.drawnItems) {
+                state.drawnItems.clearLayers();
+            }
+            importFromGeoJSON(data.geojsonData);
+            showNotification('Файл успешно загружен', 'success');
+            return;
+        }
+
+        throw new Error('Некорректный формат данных');
     } catch (error) {
         console.error('Ошибка при загрузке файла:', error);
         showNotification('Ошибка при загрузке файла', 'error');

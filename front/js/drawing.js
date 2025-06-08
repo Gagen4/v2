@@ -31,7 +31,49 @@ function setupMapHandlers() {
       addPolygonPoint(e.latlng);
     } else if (state.currentTool === 'delete') {
       e.originalEvent.preventDefault();
-      // ...delete logic...
+      // Реализуем удаление объектов по клику
+      let foundLayer = null;
+      state.drawnItems.eachLayer(layer => {
+        // Для маркеров — если клик рядом с маркером (10px)
+        if (!foundLayer && layer instanceof L.Marker && layer.getLatLng().distanceTo(e.latlng) < 15) {
+          foundLayer = layer;
+        }
+        // Для линий — если клик близко к линии (используем distanceSegment, если доступен)
+        if (
+          !foundLayer &&
+          layer instanceof L.Polyline &&
+          !(layer instanceof L.Polygon)
+        ) {
+          const latlngs = layer.getLatLngs();
+          for (let i = 0; i < latlngs.length - 1; i++) {
+            let dist = 99999;
+            if (L.GeometryUtil && typeof L.GeometryUtil.distanceSegment === 'function') {
+              dist = L.GeometryUtil.distanceSegment(state.map, e.latlng, latlngs[i], latlngs[i + 1]);
+            } else {
+              // Простейшая эвристика: расстояние до ближайшей точки
+              dist = Math.min(
+                e.latlng.distanceTo(latlngs[i]),
+                e.latlng.distanceTo(latlngs[i + 1])
+              );
+            }
+            if (dist < 15) {
+              foundLayer = layer;
+              break;
+            }
+          }
+        }
+        // Для полигонов — если клик внутри полигона
+        if (
+          !foundLayer &&
+          layer instanceof L.Polygon &&
+          layer.getBounds().contains(e.latlng)
+        ) {
+          foundLayer = layer;
+        }
+      });
+      if (foundLayer) {
+        state.drawnItems.removeLayer(foundLayer);
+      }
     } else if (!state.currentTool) {
       // Если инструмент не выбран — ищем объект под курсором и показываем popup
       let found = false;
@@ -46,7 +88,14 @@ function setupMapHandlers() {
           // Проверка попадания на линию
           const latlngs = layer.getLatLngs();
           for (let i = 0; i < latlngs.length - 1; i++) {
-            const dist = L.GeometryUtil.distanceSegment(state.map, e.latlng, latlngs[i], latlngs[i + 1]);
+            let dist;
+            if (L.GeometryUtil && typeof L.GeometryUtil.distanceSegment === 'function') {
+              dist = L.GeometryUtil.distanceSegment(map, e.latlng, latlngs[i], latlngs[i + 1]);
+            } else {
+              console.warn('L.GeometryUtil.distanceSegment is not available');
+              // Можно обработать ситуацию по-другому или просто return
+              return;
+            }
             if (dist < 10) {
               showFeaturePopup(layer);
               found = true;

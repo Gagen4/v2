@@ -37,7 +37,6 @@ function initTools() {
     resetDrawing(state, false);
     state.currentTool = 'marker';
     updateToolButtons(state);
-    showHelp('Кликните на карте, чтобы добавить маркер');
   });
 
   // Добавление линии
@@ -46,7 +45,6 @@ function initTools() {
     resetDrawing(state, false);
     state.currentTool = 'line';
     updateToolButtons(state);
-    showHelp('Кликните на карте, чтобы добавить точки линии. Нажмите Esc для завершения.');
   });
 
   // Добавление полигона
@@ -55,7 +53,6 @@ function initTools() {
     resetDrawing(state, false);
     state.currentTool = 'polygon';
     updateToolButtons(state);
-    showHelp('Кликните на карте, чтобы добавить точки полигона. Нажмите Esc для завершения.');
   });
 
   // Удаление объекта
@@ -68,7 +65,6 @@ function initTools() {
     resetDrawing(state, false);
     state.currentTool = 'delete';
     updateToolButtons(state);
-    showHelp('Кликните на объект, чтобы удалить его');
   });
 
   // Очистка всех объектов
@@ -77,7 +73,6 @@ function initTools() {
     resetDrawing(state, true);
     state.currentTool = null;
     updateToolButtons(state);
-    showHelp('Все объекты очищены');
   });
 
   // Сохранение карты - удалено, чтобы избежать дублирования с ui.js

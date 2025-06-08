@@ -66,10 +66,9 @@ async function getAllMapObjects() {
 
 async function getFileByNameAndUser(userId, fileName) {
     // Только file_name, не пробуем file
-    let rows = await runQuery('SELECT * FROM files WHERE user_id = ? AND file_name = ?', [userId, fileName]);
-    console.log(`Поиск файла ${fileName} для пользователя с ID ${userId}`);
     const query = 'SELECT * FROM files WHERE user_id = ? AND file_name = ?';
     const rows = await runQuery(query, [userId, fileName]);
+    console.log(`Поиск файла ${fileName} для пользователя с ID ${userId}`);
     console.log('Результат поиска файла:', rows[0] ? 'файл найден' : 'файл не найден');
     return rows[0];
 }
@@ -97,17 +96,12 @@ async function saveFile(userId, fileName, geojsonData) {
 
 // Исправленный getFilesByUserId для поддержки разных схем таблицы files
 async function getFilesByUserId(userId) {
-    // Запрашиваем только file_name, не пробуем file
+    // Запрашиваем только file_name
     let rows = await runQuery('SELECT file_name FROM files WHERE user_id = ?', [userId]);
     if (!Array.isArray(rows) || rows.length === 0) {
         return [];
     }
     return rows.map(r => r.file_name).filter(f => typeof f === 'string' && f.length > 0);
-    console.log(`Сохранение файла ${fileName} для пользователя с ID ${userId}`);
-    const query = 'INSERT OR REPLACE INTO files (user_id, file_name, file_content) VALUES (?, ?, ?)';
-    const result = await run(query, [userId, fileName, JSON.stringify(geojsonData)]);
-    console.log('Файл успешно сохранен');
-    return result;
 }
 
 async function cleanupFilesWithoutFile() {

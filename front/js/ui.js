@@ -188,79 +188,68 @@ let isSaving = false;
 let saveAttempts = 0;
 let currentFileName = null;
 
-function saveMap() {
-    if (!isAuthenticated()) {
-        alert('Пожалуйста, войдите в систему для сохранения карты.');
-        return;
-    }
-    // Получаем имя файла из input
-    const fileNameInput = document.getElementById('save-file-name');
-    const fileName = fileNameInput ? fileNameInput.value.trim() : '';
-    if (!fileName) {
-        alert('Пожалуйста, введите имя файла для сохранения.');
-        isSaving = false;
-        return;
-    }
+async function saveMap() {
     if (isSaving) {
-        console.log('Сохранение уже выполняется, игнорируем повторный запрос.');
+        console.log('Сохранение уже выполняется, пропускаем');
         return;
     }
     isSaving = true;
-    saveRequestCount++;
-    console.log('Попытка сохранения номер:', saveRequestCount);
-    if (fileName) {
-        console.log('Сохранение файла:', fileName);
-        const geojsonData = exportToGeoJSON();
-        console.log('Данные для сохранения:', geojsonData);
-        fetch('http://127.0.0.1:3000/save', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ fileName, geojsonData }),
-            credentials: 'include'
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Файл успешно сохранен:', data);
-            alert(data.message);
-            console.log('Обновление списка файлов после сохранения...');
-            updateFileList();
-            console.log('Список файлов обновлен после сохранения.');
-            isSaving = false;
-            console.log('Сохранение завершено, isSaving сброшен в false.');
-            // Отображение названия текущего файла в панели
-            document.getElementById('current-file').textContent = 'Текущий файл: ' + fileName;
-        })
-        .catch(error => {
-            console.error('Ошибка при сохранении файла:', error);
-            alert('Произошла ошибка при сохранении файла.');
-            isSaving = false;
-            console.log('Сохранение завершено с ошибкой, isSaving сброшен в false.');
-        });
-    } else {
-        notification.style.backgroundColor = '#f44336';
+    console.log('Попытка сохранения номер:', saveAttempts + 1);
+    saveAttempts++;
+
+    const fileNameInput = document.getElementById('save-file-name');
+    if (!fileNameInput) {
+        showNotification('Ошибка: поле ввода имени файла не найдено', 'error');
+        isSaving = false;
+        return;
     }
 
-    document.body.appendChild(notification);
-    
-    // Показываем уведомление
-    setTimeout(() => {
-        notification.style.opacity = '1';
-    }, 10);
+    const fileName = fileNameInput.value.trim();
+    console.log('Сохранение файла:', fileName);
 
-    // Удаляем уведомление через 3 секунды
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        setTimeout(() => {
-            document.body.removeChild(notification);
-        }, 300);
-    }, 3000);
+    if (!fileName) {
+        showNotification('Введите имя файла', 'error');
+        isSaving = false;
+        return;
+    }
+
+    const geojsonData = getGeoJSONForSave();
+    console.log('Данные для сохранения:', geojsonData);
+
+    try {
+        const response = await fetch('http://127.0.0.1:3000/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                fileName: fileName,
+                geojsonData: geojsonData
+            })
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                showNotification('Сессия истекла, требуется повторная авторизация', 'error');
+                showLoginForm();
+                return;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Файл успешно сохранен:', result);
+        showNotification('Файл успешно сохранен', 'success');
+        await updateFileList();
+    } catch (error) {
+        console.error('Ошибка при сохранении файла:', error);
+        showNotification('Ошибка при сохранении файла', 'error');
+    } finally {
+        isSaving = false;
+        console.log('Сохранение завершено, isSaving сброшен в false.');
+    }
 }
 
 /**
@@ -351,70 +340,6 @@ function getGeoJSONForSave() {
             type: 'FeatureCollection',
             features: []
         };
-    }
-}
-
-async function saveMap() {
-    if (isSaving) {
-        console.log('Сохранение уже выполняется, пропускаем');
-        return;
-    }
-    isSaving = true;
-    console.log('Попытка сохранения номер:', saveAttempts + 1);
-    saveAttempts++;
-
-    const fileNameInput = document.getElementById('save-file-name');
-    if (!fileNameInput) {
-        showNotification('Ошибка: поле ввода имени файла не найдено', 'error');
-        isSaving = false;
-        return;
-    }
-
-    const fileName = fileNameInput.value.trim();
-    console.log('Сохранение файла:', fileName);
-
-    if (!fileName) {
-        showNotification('Введите имя файла', 'error');
-        isSaving = false;
-        return;
-    }
-
-    const geojsonData = getGeoJSONForSave();
-    console.log('Данные для сохранения:', geojsonData);
-
-    try {
-        const response = await fetch('http://127.0.0.1:3000/save', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            credentials: 'include',
-            body: JSON.stringify({
-                fileName: fileName,
-                geojsonData: geojsonData
-            })
-        });
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                showNotification('Сессия истекла, требуется повторная авторизация', 'error');
-                showLoginForm();
-                return;
-            }
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        console.log('Файл успешно сохранен:', result);
-        showNotification('Файл успешно сохранен', 'success');
-        await updateFileList();
-    } catch (error) {
-        console.error('Ошибка при сохранении файла:', error);
-        showNotification('Ошибка при сохранении файла', 'error');
-    } finally {
-        isSaving = false;
-        console.log('Сохранение завершено, isSaving сброшен в false.');
     }
 }
 
@@ -648,6 +573,11 @@ function setCurrentFileName(fileName) {
     if (currentFileElement) {
         currentFileElement.textContent = 'Текущий файл: ' + fileName;
     }
+}
+
+// Простейшая реализация функции уведомления
+function showNotification(message, type = 'info') {
+    alert(message);
 }
 
 // Экспортируем все необходимые функции

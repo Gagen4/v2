@@ -90,9 +90,26 @@ async function deleteFile(userId, fileName, fileId = null) {
     }
 }
 
+// Исправленный saveFile для поддержки разных схем таблицы files
 async function saveFile(userId, fileName, geojsonData) {
-    const query = 'INSERT OR REPLACE INTO files (user_id, file_name, file_content) VALUES (?, ?, ?)';
-    return await run(query, [userId, fileName, JSON.stringify(geojsonData)]);
+    // Пробуем сохранить в таблицу files с разными схемами
+    try {
+        const query = 'INSERT OR REPLACE INTO files (user_id, file_name, file_content) VALUES (?, ?, ?)';
+        return await run(query, [userId, fileName, JSON.stringify(geojsonData)]);
+    } catch (e) {
+        // Если не удалось, пробуем альтернативную схему
+        const query2 = 'INSERT OR REPLACE INTO files (user_id, file, data) VALUES (?, ?, ?)';
+        return await run(query2, [userId, fileName, JSON.stringify(geojsonData)]);
+    }
+}
+
+// Исправленный getFilesByUserId для поддержки разных схем таблицы files
+async function getFilesByUserId(userId) {
+    let rows = await runQuery('SELECT file_name FROM files WHERE user_id = ?', [userId]);
+    if (rows.length === 0) {
+        rows = await runQuery('SELECT file FROM files WHERE user_id = ?', [userId]);
+    }
+    return rows.map(r => r.file_name || r.file);
 }
 
 async function cleanupFilesWithoutFile() {
@@ -113,10 +130,6 @@ async function getAllUsers() {
 
 async function deleteMapObject(id) {
     return await run('DELETE FROM MapObjects WHERE id = ?', [id]);
-}
-
-async function getFilesByUserId(userId) {
-    return await runQuery('SELECT * FROM files WHERE user_id = ?', [userId]);
 }
 
 // Миграция для добавления столбца last_login
@@ -259,4 +272,4 @@ module.exports = {
     updateUserLastLogin,
     recreateDatabase,
     clearAllSaves
-}; 
+};

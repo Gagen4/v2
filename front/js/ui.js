@@ -115,9 +115,11 @@ async function updateFileList() {
                 fileList.innerHTML = '<li>Нет сохраненных файлов</li>';
             } else {
                 files.forEach(file => {
+                    // file может быть строкой (имя файла), а не объектом
+                    const fileName = typeof file === 'string' ? file : (file.file_name || file.name || file);
                     const li = document.createElement('li');
-                    li.textContent = file.file_name || file;
-                    li.setAttribute('data-file-name', file.file_name || file);
+                    li.textContent = fileName;
+                    li.setAttribute('data-file-name', fileName);
                     fileList.appendChild(li);
                 });
             }
@@ -129,9 +131,10 @@ async function updateFileList() {
             fileSelect.innerHTML = '<option value="">Выберите файл...</option>';
             if (files.length > 0) {
                 files.forEach(file => {
+                    const fileName = typeof file === 'string' ? file : (file.file_name || file.name || file);
                     const option = document.createElement('option');
-                    option.value = file.file_name || file;
-                    option.textContent = file.file_name || file;
+                    option.value = fileName;
+                    option.textContent = fileName;
                     fileSelect.appendChild(option);
                 });
             }
@@ -158,6 +161,14 @@ let isSaveHandlerAdded = false;
 function saveMap() {
     if (!isAuthenticated()) {
         alert('Пожалуйста, войдите в систему для сохранения карты.');
+        return;
+    }
+    // Получаем имя файла из input
+    const fileNameInput = document.getElementById('save-file-name');
+    const fileName = fileNameInput ? fileNameInput.value.trim() : '';
+    if (!fileName) {
+        alert('Пожалуйста, введите имя файла для сохранения.');
+        isSaving = false;
         return;
     }
     if (isSaving) {

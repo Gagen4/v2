@@ -241,10 +241,8 @@ app.get('/load/:fileName', authenticateToken, async (req, res) => {
 // Список файлов
 app.get('/files', authenticateToken, async (req, res) => {
     const { id: userId } = req.user;
-    
     try {
-        const userMapObjects = await db.getMapObjectsByUserId(userId);
-        const files = userMapObjects.map(obj => obj.name);
+        const files = await db.getFilesByUserId(userId);
         res.json(files);
     } catch (error) {
         console.error('Ошибка получения списка файлов:', error);

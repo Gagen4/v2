@@ -101,11 +101,30 @@ async function updateFileList() {
                 'Accept': 'application/json'
             }
         });
+        // Логируем статус ответа сервера
+        console.log('Ответ сервера на /files:', response.status, response.statusText);
         if (!response.ok) {
+            // Очищаем DOM элементы при ошибке
+            const fileList = document.getElementById('file-list');
+            if (fileList) fileList.innerHTML = '<li>Ошибка загрузки списка файлов (сервер недоступен или ошибка 500)</li>';
+            const fileSelect = document.getElementById('load-file-name');
+            if (fileSelect) fileSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+            const errorMessage = document.getElementById('error-message');
+            if (errorMessage) {
+                errorMessage.textContent = `Ошибка загрузки файлов: ${response.status} ${response.statusText}`;
+            }
             console.error('Ошибка при получении списка файлов:', response.status, response.statusText);
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            // Не выбрасываем исключение, просто выходим из функции
+            return;
         }
-        const files = await response.json();
+        let files = await response.json();
+        // Проверяем, что сервер вернул массив
+        if (!Array.isArray(files)) {
+            console.warn('Сервер вернул не массив файлов, files:', files);
+            files = [];
+        }
+        // Фильтруем только строки
+        files = files.filter(f => typeof f === 'string' && f.length > 0);
         console.log('Список файлов получен:', files);
         const fileList = document.getElementById('file-list');
         if (fileList) {
@@ -114,9 +133,7 @@ async function updateFileList() {
                 console.log('Нет сохраненных файлов для отображения');
                 fileList.innerHTML = '<li>Нет сохраненных файлов</li>';
             } else {
-                files.forEach(file => {
-                    // file может быть строкой (имя файла), а не объектом
-                    const fileName = typeof file === 'string' ? file : (file.file_name || file.name || file);
+                files.forEach(fileName => {
                     const li = document.createElement('li');
                     li.textContent = fileName;
                     li.setAttribute('data-file-name', fileName);
@@ -130,8 +147,7 @@ async function updateFileList() {
         if (fileSelect) {
             fileSelect.innerHTML = '<option value="">Выберите файл...</option>';
             if (files.length > 0) {
-                files.forEach(file => {
-                    const fileName = typeof file === 'string' ? file : (file.file_name || file.name || file);
+                files.forEach(fileName => {
                     const option = document.createElement('option');
                     option.value = fileName;
                     option.textContent = fileName;
@@ -141,16 +157,24 @@ async function updateFileList() {
         } else {
             console.error('Элемент load-file-name не найден в DOM');
         }
+        // Очищаем сообщение об ошибке, если всё прошло успешно
+        const errorMessage = document.getElementById('error-message');
+        if (errorMessage) {
+            errorMessage.textContent = '';
+        }
     } catch (error) {
+        // Очищаем DOM элементы при ошибке
+        const fileList = document.getElementById('file-list');
+        if (fileList) fileList.innerHTML = '<li>Ошибка загрузки списка файлов (сервер недоступен или ошибка 500)</li>';
+        const fileSelect = document.getElementById('load-file-name');
+        if (fileSelect) fileSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+        const errorMessage = document.getElementById('error-message');
+        if (errorMessage) {
+            errorMessage.textContent = 'Ошибка загрузки списка файлов. Попробуйте позже или обратитесь к администратору.';
+        }
         console.error('Исключение при получении списка файлов:', error);
         console.error('URL запроса:', 'http://127.0.0.1:3000/files');
         console.error('Ошибка может быть связана с недоступностью сервера или сетевыми проблемами.');
-        const fileList = document.getElementById('file-list');
-        if (fileList) {
-            fileList.innerHTML = '<li>Ошибка загрузки списка файлов</li>';
-        } else {
-            console.error('Элемент file-list не найден в DOM при обработке ошибки');
-        }
     }
 }
 

@@ -44,12 +44,8 @@ function setupAuthListeners() {
             if (isLoginMode) {
                 await login(email, password);
             } else {
-                const schoolNumber = document.getElementById('school-number').value;
-                if (!schoolNumber) {
-                    showError('Введите номер школы');
-                    return;
-                }
-                await register(email, password, schoolNumber);
+                // Удалить обработку schoolNumber
+                await register(email, password);
             }
         } catch (error) {
             showError(error.message);
@@ -83,7 +79,7 @@ function hideError() {
 /**
  * Регистрация нового пользователя
  */
-async function register(email, password, schoolNumber) {
+async function register(email, password) {
     try {
         if (!email || !password) {
             throw new Error('Заполните все поля');
@@ -96,7 +92,7 @@ async function register(email, password, schoolNumber) {
         if (!emailExists) {
             throw new Error('Этот email не существует или недоступен');
         }
-        console.log('Отправка запроса на регистрацию с данными:', { email, password, schoolNumber });
+        console.log('Отправка запроса на регистрацию с данными:', { email, password });
         const response = await fetch('http://127.0.0.1:3000/register', {
             method: 'POST',
             credentials: 'include',
@@ -104,7 +100,7 @@ async function register(email, password, schoolNumber) {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({ email, password, schoolNumber }),
+            body: JSON.stringify({ email, password }),
         });
 
         console.log('Ответ сервера на запрос регистрации:', response.status, response.statusText);
@@ -393,20 +389,13 @@ function isValidEmail(email) {
 async function updateUserRole() {
     const email = document.getElementById('admin-user-list').value;
     const role = document.getElementById('admin-role-select').value;
-    const schoolNumber = document.getElementById('admin-school-number').value;
-    
+    // Удалить обработку schoolNumber
     if (!email || !role) {
         alert('Введите email и выберите роль');
         return;
     }
-
-    if ((role === 'student' || role === 'teacher') && !schoolNumber) {
-        alert('Введите номер школы для ученика или учителя');
-        return;
-    }
-
     try {
-        const response = await fetch(`http://127.0.0.1:3000/admin/set-role?email=${encodeURIComponent(email)}&role=${role}&schoolNumber=${encodeURIComponent(schoolNumber)}`, {
+        const response = await fetch(`http://127.0.0.1:3000/admin/set-role?email=${encodeURIComponent(email)}&role=${role}`, {
             method: 'GET',
             credentials: 'include',
             headers: {
@@ -458,4 +447,4 @@ async function loadUserList() {
     }
 }
 
-export { initAuth, isAuthenticated, getCurrentUser }; 
+export { initAuth, isAuthenticated, getCurrentUser };

@@ -1,4 +1,4 @@
-const { runQuery, run } = require('../config/database');
+const { runQuery, run, db } = require('../config/database');
 
 // Операции с пользователями
 async function createUser(username, hashedPassword) {
@@ -36,8 +36,8 @@ async function updateUserLastLogin(userId) {
 }
 
 async function updateUserRole(userId, role) {
-    const sql = 'UPDATE users SET role = ? WHERE id = ?';
-    return await runQuery(sql, [role, userId]);
+    const sql = 'UPDATE Users SET role = ? WHERE id = ?';
+    return await run(sql, [role, userId]);
 }
 
 async function updateUserPassword(userId, hashedPassword) {
@@ -65,8 +65,8 @@ async function getAllMapObjects() {
 }
 
 async function getFileByNameAndUser(userId, fileName) {
-    const query = 'SELECT * FROM files WHERE user_id = ? AND file_name = ?';
-    const rows = await runQuery(query, [userId, fileName]);
+    // Только file_name, не пробуем file
+    let rows = await runQuery('SELECT * FROM files WHERE user_id = ? AND file_name = ?', [userId, fileName]);
     return rows[0];
 }
 
@@ -105,11 +105,12 @@ async function saveFile(userId, fileName, geojsonData) {
 
 // Исправленный getFilesByUserId для поддержки разных схем таблицы files
 async function getFilesByUserId(userId) {
+    // Запрашиваем только file_name, не пробуем file
     let rows = await runQuery('SELECT file_name FROM files WHERE user_id = ?', [userId]);
-    if (rows.length === 0) {
-        rows = await runQuery('SELECT file FROM files WHERE user_id = ?', [userId]);
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return [];
     }
-    return rows.map(r => r.file_name || r.file);
+    return rows.map(r => r.file_name).filter(f => typeof f === 'string' && f.length > 0);
 }
 
 async function cleanupFilesWithoutFile() {
@@ -250,6 +251,35 @@ async function clearAllSaves() {
     });
 }
 
+// Добавить функцию создания пользователя по email
+async function createUserByEmail(email, hashedPassword) {
+    const result = await run(
+        'INSERT INTO Users (email, password, role) VALUES (?, ?, ?)',
+        [email, hashedPassword, 'student']
+    );
+    return result.id;
+}
+
+// Получить всех файлов для админа
+async function getAllFiles() {
+    // Запрашиваем только file_name, не пробуем file
+    let rows = await runQuery('SELECT file_name FROM files');
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return [];
+    }
+    return rows.map(r => r.file_name).filter(f => typeof f === 'string' && f.length > 0);
+}
+
+// Заглушка для getTeacherBySchoolNumber
+async function getTeacherBySchoolNumber() {
+    return null;
+}
+
+// Заглушка для getStudentsBySchoolNumber
+async function getStudentsBySchoolNumber() {
+    return [];
+}
+
 module.exports = {
     run,
     runQuery,
@@ -271,5 +301,10 @@ module.exports = {
     cleanupFilesWithoutFile,
     updateUserLastLogin,
     recreateDatabase,
-    clearAllSaves
+    clearAllSaves,
+    // новые функции
+    createUserByEmail,
+    getAllFiles,
+    getTeacherBySchoolNumber,
+    getStudentsBySchoolNumber
 };

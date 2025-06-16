@@ -1,23 +1,33 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
+const path = require('path');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 const db = require('./models/db');
 
 // Middleware
 app.use(cors({
-    origin: 'http://127.0.0.1:5500',
+    origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://0.0.0.0:3000',
+        process.env.FRONTEND_URL || 'http://localhost:3000'
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.use(express.json());
 app.use(cookieParser());
+
+// Обслуживание статических файлов frontend
+app.use(express.static(path.join(__dirname, 'front')));
 
 // Middleware для логирования всех запросов
 app.use((req, res, next) => {
@@ -47,7 +57,7 @@ async function authenticateToken(req, res, next) {
             console.log('[AUTH] Пользователь не найден:', decoded.email);
             return res.status(401).json({ error: 'Пользователь не найден' });
         }
-        req.user = { id: user.id, email: user.email, isAdmin: user.role === 'admin' };
+        req.user = { id: user.id, email: user.email, role: user.role, isAdmin: user.role === 'admin' };
         console.log('[AUTH] Пользователь аутентифицирован:', req.user);
         next();
     } catch (error) {
@@ -66,19 +76,24 @@ function isAdmin(req, res, next) {
     next();
 }
 
+// Middleware для проверки прав администратора или учителя
+function isAdminOrTeacher(req, res, next) {
+    if (!req.user.isAdmin && req.user.role !== 'teacher' && req.user.email !== 'admin') {
+        console.log('Доступ запрещен для пользователя:', req.user.email, 'роль:', req.user.role);
+        return res.status(403).json({ error: 'Требуются права администратора или учителя' });
+    }
+    console.log('Доступ администратора/учителя разрешен для:', req.user.email, 'роль:', req.user.role);
+    next();
+}
+
 // Регистрация
 app.post('/register', async (req, res) => {
     console.log('Запрос на регистрацию получен:', req.body);
-    const { email, password, schoolNumber } = req.body;
+    const { email, password } = req.body;
     
     if (!email || !password) {
         console.log('Ошибка: отсутствует email или пароль');
         return res.status(400).json({ error: 'Требуются email и пароль' });
-    }
-
-    if (!schoolNumber) {
-        console.log('Ошибка: отсутствует номер школы');
-        return res.status(400).json({ error: 'Требуется номер школы' });
     }
 
     // Проверка действительности email с помощью quickemailverification
@@ -119,7 +134,7 @@ app.post('/register', async (req, res) => {
         console.log('Хеширование пароля...');
         const hashedPassword = await bcrypt.hash(password, 10);
         console.log('Создание нового пользователя...');
-        const userId = await db.createUserByEmail(email, hashedPassword, schoolNumber);
+        const userId = await db.createUserByEmail(email, hashedPassword);
         // Устанавливаем роль student для новых пользователей
         await db.updateUserRole(userId, 'student');
         
@@ -275,47 +290,67 @@ app.get('/files', authenticateToken, async (req, res) => {
     }
 });
 
-// Получение списка всех файлов (для админа)
-app.get('/admin/files', authenticateToken, isAdmin, async (req, res) => {
-    console.log('Запрос списка всех файлов от администратора:', req.user.email);
+// Получение списка всех файлов (для админа и учителя)
+app.get('/admin/files', authenticateToken, isAdminOrTeacher, async (req, res) => {
+    console.log('Запрос списка всех файлов от администратора/учителя:', req.user.email);
     try {
-        const allFiles = await db.getAllMapObjects();
+        // Получаем всех пользователей и их файлы
+        const { runQuery } = require('./config/database');
+        const filesQuery = `
+            SELECT u.email, f.file_name, f.created_at 
+            FROM files f 
+            JOIN Users u ON f.user_id = u.id 
+            WHERE u.email IS NOT NULL AND u.email != '' AND f.file_name IS NOT NULL AND f.file_name != ''
+            ORDER BY f.created_at DESC
+        `;
+        const allFiles = await runQuery(filesQuery);
+        
         const files = allFiles.map(file => ({
             email: file.email,
-            fileName: file.name,
+            fileName: file.file_name,
             createdAt: file.created_at
         }));
-        console.log('Список файлов успешно отправлен администратору:', files);
+        console.log('Список файлов успешно отправлен администратору/учителю:', files.length, 'файлов');
         res.json(files);
     } catch (error) {
-        console.error('Ошибка получения списка файлов для админа:', error);
+        console.error('Ошибка получения списка файлов для админа/учителя:', error);
         res.status(500).json({ error: 'Ошибка сервера при получении списка файлов' });
     }
 });
 
-// Загрузка файла любого пользователя (для админа)
-app.get('/admin/load/:email/:fileName', authenticateToken, isAdmin, async (req, res) => {
+// Загрузка файла любого пользователя (для админа и учителя)
+app.get('/admin/load/:email/:fileName', authenticateToken, isAdminOrTeacher, async (req, res) => {
     const { email, fileName } = req.params;
 
     try {
+        console.log(`Запрос на загрузку файла ${fileName} пользователя ${email} от администратора/учителя:`, req.user.email);
+        
         const user = await db.getUserByEmail(email);
         if (!user) {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
 
-        const mapObject = await db.getMapObjectByName(user.id, fileName);
-        if (!mapObject) {
+        const fileData = await db.getFileByNameAndUser(user.id, fileName);
+        if (!fileData) {
             return res.status(404).json({ error: 'Файл не найден' });
         }
 
-        const geojsonData = {
-            type: mapObject.type,
-            features: mapObject.coordinates
-        };
+        let geojsonData = fileData.file_content;
+        
+        // Проверяем, является ли file_content строкой, и если да, преобразуем в объект
+        if (typeof geojsonData === 'string') {
+            try {
+                geojsonData = JSON.parse(geojsonData);
+            } catch (e) {
+                console.error(`Ошибка при парсинге данных файла ${fileName}:`, e);
+                return res.status(500).json({ error: 'Ошибка формата данных файла' });
+            }
+        }
 
+        console.log(`Файл ${fileName} пользователя ${email} успешно загружен администратором/учителем`);
         res.json(geojsonData);
     } catch (error) {
-        console.error('Ошибка загрузки:', error);
+        console.error('Ошибка загрузки файла администратором/учителем:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
@@ -329,8 +364,9 @@ app.get('/user/info', authenticateToken, async (req, res) => {
         }
         res.json({
             email: user.email,
+            role: user.role,
             isAdmin: user.role === 'admin',
-            schoolNumber: user.school_number
+            isTeacher: user.role === 'teacher'
         });
     } catch (error) {
         console.error('Ошибка при получении информации о пользователе:', error);
@@ -378,15 +414,15 @@ app.get('/verify-email', async (req, res) => {
     }
 });
 
-// Временный endpoint для обновления роли пользователя на admin (для начальной настройки)
+// Endpoint для обновления роли пользователя (для администраторов)
 app.get('/admin/set-role', authenticateToken, isAdmin, async (req, res) => {
-    const { email, role, schoolNumber } = req.query;
+    const { email, role } = req.query;
     if (!email || !role) {
         return res.status(400).json({ error: 'Email и роль обязательны' });
     }
 
-    if ((role === 'student' || role === 'teacher') && !schoolNumber) {
-        return res.status(400).json({ error: 'Номер школы обязателен для ученика или учителя' });
+    if (!['student', 'teacher', 'admin'].includes(role)) {
+        return res.status(400).json({ error: 'Недопустимая роль. Разрешены: student, teacher, admin' });
     }
 
     try {
@@ -395,23 +431,7 @@ app.get('/admin/set-role', authenticateToken, isAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
 
-        // Проверка соответствия номера школы у учителя и учеников
-        if (role === 'student') {
-            const teacher = await db.getTeacherBySchoolNumber(schoolNumber);
-            if (teacher && teacher.schoolNumber !== schoolNumber) {
-                return res.status(400).json({ error: 'Номер школы ученика не соответствует номеру школы учителя' });
-            }
-        } else if (role === 'teacher') {
-            const students = await db.getStudentsBySchoolNumber(schoolNumber);
-            if (students.length > 0) {
-                const mismatchedStudents = students.filter(student => student.schoolNumber !== schoolNumber);
-                if (mismatchedStudents.length > 0) {
-                    return res.status(400).json({ error: 'Номер школы учителя не соответствует номерам школы некоторых учеников' });
-                }
-            }
-        }
-
-        await db.updateUserRole(user.id, role, schoolNumber);
+        await db.updateUserRole(user.id, role);
         res.json({ message: `Роль пользователя ${email} обновлена на ${role}` });
     } catch (error) {
         console.error('Ошибка при обновлении роли:', error);
@@ -571,6 +591,187 @@ app.get('/check-token', authenticateToken, (req, res) => {
             isAdmin: req.user.isAdmin
         }
     });
+});
+
+// === ENDPOINTS ДЛЯ РАБОТЫ С ОТВЕТАМИ СТУДЕНТОВ ===
+
+// Сохранение ответов студента
+app.post('/answers/save', authenticateToken, async (req, res) => {
+    try {
+        const { answers } = req.body;
+        const userId = req.user.id;
+        const role = req.user.role;
+        
+        // Проверяем, что пользователь - студент
+        if (role !== 'student') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Только студенты могут сохранять ответы на вопросы' 
+            });
+        }
+        
+        if (!answers || typeof answers !== 'object') {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Неверный формат ответов' 
+            });
+        }
+        
+        console.log(`Сохранение ответов для пользователя ${userId}:`, answers);
+        
+        // Преобразуем ответы в JSON строку
+        const answersJson = JSON.stringify(answers);
+        
+        // Используем REPLACE для вставки или обновления записи
+        const query = `
+            INSERT OR REPLACE INTO student_answers (user_id, answers, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `;
+        
+        const { run } = require('./config/database');
+        await run(query, [userId, answersJson]);
+        
+        console.log(`Ответы пользователя ${userId} успешно сохранены`);
+        
+        res.json({ 
+            success: true, 
+            message: 'Ответы успешно сохранены' 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при сохранении ответов:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Ошибка сервера при сохранении ответов',
+            error: error.message 
+        });
+    }
+});
+
+// Загрузка ответов студента
+app.get('/answers/load', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+        
+        // Проверяем, что пользователь - студент
+        if (role !== 'student') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Только студенты могут загружать свои ответы' 
+            });
+        }
+        
+        console.log(`Загрузка ответов для пользователя ${userId}`);
+        
+        const query = `
+            SELECT answers, created_at, updated_at 
+            FROM student_answers 
+            WHERE user_id = ?
+        `;
+        
+        const { runQuery } = require('./config/database');
+        const rows = await runQuery(query, [userId]);
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Ответы не найдены' 
+            });
+        }
+        
+        const answersData = rows[0];
+        let answers;
+        
+        try {
+            answers = JSON.parse(answersData.answers);
+        } catch (parseError) {
+            console.error('Ошибка парсинга ответов:', parseError);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Ошибка формата сохраненных ответов' 
+            });
+        }
+        
+        console.log(`Ответы пользователя ${userId} успешно загружены`);
+        
+        res.json({ 
+            success: true, 
+            answers: answers,
+            created_at: answersData.created_at,
+            updated_at: answersData.updated_at
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при загрузке ответов:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Ошибка сервера при загрузке ответов',
+            error: error.message 
+        });
+    }
+});
+
+// Получение всех ответов студентов (только для админов и учителей)
+app.get('/admin/answers', authenticateToken, isAdminOrTeacher, async (req, res) => {
+    try {
+        console.log('Админ/учитель запрашивает все ответы студентов');
+        
+        const query = `
+            SELECT sa.id, sa.user_id, sa.answers, sa.created_at, sa.updated_at,
+                   u.username, u.email
+            FROM student_answers sa
+            JOIN Users u ON sa.user_id = u.id
+            WHERE u.role = 'student'
+            ORDER BY sa.updated_at DESC
+        `;
+        
+        const { runQuery } = require('./config/database');
+        const rows = await runQuery(query);
+        
+        const answersWithUserInfo = rows.map(row => {
+            let answers;
+            try {
+                answers = JSON.parse(row.answers);
+            } catch (parseError) {
+                console.error(`Ошибка парсинга ответов пользователя ${row.user_id}:`, parseError);
+                answers = {};
+            }
+            
+            return {
+                id: row.id,
+                user_id: row.user_id,
+                username: row.username,
+                email: row.email,
+                answers: answers,
+                created_at: row.created_at,
+                updated_at: row.updated_at
+            };
+        });
+        
+        res.json({ 
+            success: true, 
+            answers: answersWithUserInfo 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении всех ответов:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Ошибка сервера при получении ответов',
+            error: error.message 
+        });
+    }
+});
+
+// Роут для обслуживания главной страницы
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'front', 'index.html'));
+});
+
+// Роут для обслуживания всех остальных страниц (SPA fallback)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'front', 'index.html'));
 });
 
 app.listen(port, async () => {

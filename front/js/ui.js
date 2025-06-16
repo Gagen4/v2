@@ -98,7 +98,7 @@ let fileListUpdateCount = 0;
 async function updateFileList() {
     try {
         console.log('Обновление списка файлов...');
-        const response = await fetch('http://127.0.0.1:3000/files', {
+        const response = await fetch('/files', {
             method: 'GET',
             credentials: 'include',
             headers: {
@@ -206,7 +206,7 @@ async function updateFileList() {
             errorMessage.textContent = 'Ошибка загрузки списка файлов. Попробуйте позже или обратитесь к администратору.';
         }
         console.error('Исключение при получении списка файлов:', error);
-        console.error('URL запроса:', 'http://127.0.0.1:3000/files');
+                        console.error('URL запроса:', '/files');
         console.error('Ошибка может быть связана с недоступностью сервера или сетевыми проблемами.');
     }
 }
@@ -241,10 +241,34 @@ async function saveMap() {
     }
 
     const geojsonData = getGeoJSONForSave();
-    console.log('Данные для сохранения:', geojsonData);
+    console.log('Данные карты для сохранения:', geojsonData);
+
+    // Получаем ответы на вопросы если пользователь - студент
+    console.log('💾 Начинаем процесс сохранения карты и ответов в один файл...');
+    let questionsAnswers = {};
+    
+    // Проверяем доступность функции
+    if (typeof window.getQuestionAnswers === 'function') {
+        console.log('✅ Получаем ответы на вопросы...');
+        questionsAnswers = window.getQuestionAnswers();
+        console.log('📋 Ответы на вопросы:', questionsAnswers);
+    } else {
+        console.warn('⚠️ Функция getQuestionAnswers недоступна');
+    }
+
+    // Создаем объединенные данные: карта + ответы на вопросы
+    const fileData = {
+        type: 'MapWithQuestions',
+        version: '1.0',
+        geojson: geojsonData,
+        questionsAnswers: questionsAnswers,
+        savedAt: new Date().toISOString()
+    };
+    
+    console.log('📦 Объединенные данные для сохранения:', fileData);
 
     try {
-        const response = await fetch('http://127.0.0.1:3000/save', {
+        const response = await fetch('/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -253,7 +277,7 @@ async function saveMap() {
             credentials: 'include',
             body: JSON.stringify({
                 fileName: fileName,
-                geojsonData: geojsonData
+                geojsonData: fileData  // Сохраняем объединенные данные
             })
         });
 
@@ -267,8 +291,15 @@ async function saveMap() {
         }
 
         const result = await response.json();
-        console.log('Файл успешно сохранен:', result);
-        showNotification('Файл успешно сохранен', 'success');
+        console.log('Файл с картой и ответами успешно сохранен:', result);
+        
+        const hasAnswers = questionsAnswers && Object.keys(questionsAnswers).length > 0;
+        if (hasAnswers) {
+            showNotification('Карта и ответы на вопросы успешно сохранены в файл!', 'success');
+        } else {
+            showNotification('Карта успешно сохранена в файл!', 'success');
+        }
+
         await updateFileList();
     } catch (error) {
         console.error('Ошибка при сохранении файла:', error);
@@ -299,7 +330,7 @@ function getCookie(name) {
  */
 async function checkServerAvailability() {
     try {
-        const response = await fetch('http://127.0.0.1:3000/health', {
+        const response = await fetch('/health', {
             method: 'GET',
             credentials: 'include',
             headers: {
@@ -326,7 +357,7 @@ async function checkAndRefreshToken() {
     }
 
     try {
-        const response = await fetch('http://127.0.0.1:3000/check-token', {
+        const response = await fetch('/check-token', {
             method: 'GET',
             credentials: 'include',
             headers: {
@@ -371,21 +402,39 @@ function getGeoJSONForSave() {
 }
 
 async function deleteFile(fileName) {
-    // Исправлено: получение имени файла из аргумента, а не из .file-item.selected
+    // Получение имени файла из аргумента, а если не передан - из выбранного элемента
     if (!fileName || typeof fileName !== 'string') {
+        // Попробуем получить имя файла из select
+        const fileSelect = document.getElementById('load-file-name');
+        if (fileSelect && fileSelect.value) {
+            fileName = fileSelect.value;
+        } else {
+            // Если select пуст, ищем выделенный элемент списка
+            const selectedLi = document.querySelector('#file-list .file-item.selected');
+            if (selectedLi) {
+                fileName = selectedLi.getAttribute('data-file-name');
+            }
+        }
+    }
+
+    if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
         showNotification('Выберите файл для удаления', 'error');
         return;
     }
 
     console.log('Попытка удаления файла:', fileName);
 
-    // Удалено подтверждение действия
+    // Добавляем подтверждение действия
+    if (!confirm(`Вы уверены, что хотите удалить файл "${fileName}"? Это действие нельзя отменить.`)) {
+        return;
+    }
 
     try {
-        const response = await fetch(`http://127.0.0.1:3000/delete/${encodeURIComponent(fileName)}`, {
+        const response = await fetch(`/delete/${encodeURIComponent(fileName)}`, {
             method: 'DELETE',
             headers: {
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
             },
             credentials: 'include'
         });
@@ -395,6 +444,10 @@ async function deleteFile(fileName) {
                 showNotification('Сессия истекла, требуется повторная авторизация', 'error');
                 showLoginForm();
                 return;
+            } else if (response.status === 404) {
+                showNotification('Файл не найден или уже удален', 'error');
+                await updateFileList(); // Обновляем список файлов
+                return;
             }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -402,32 +455,53 @@ async function deleteFile(fileName) {
         const result = await response.json();
         console.log('Файл успешно удален:', result);
         showNotification('Файл успешно удален', 'success');
+        
+        // Очищаем выбор в select
+        const fileSelect = document.getElementById('load-file-name');
+        if (fileSelect) {
+            fileSelect.value = '';
+        }
+        
+        // Убираем выделение с элементов списка
+        const selectedItems = document.querySelectorAll('#file-list .file-item.selected');
+        selectedItems.forEach(item => item.classList.remove('selected'));
+        
+        // Обновляем список файлов
         await updateFileList();
     } catch (error) {
         console.error('Ошибка при удалении файла:', error);
-        showNotification('Ошибка при удалении файла', 'error');
+        showNotification(`Ошибка при удалении файла: ${error.message}`, 'error');
     }
 }
 
 // Добавляем обработчик для кнопки удаления файла
 function initFileControls() {
+    // Обработчик для основной кнопки удаления
     const deleteButton = document.getElementById('delete-file');
     if (deleteButton) {
         // Удаляем все предыдущие обработчики
         const newDeleteButton = deleteButton.cloneNode(true);
         deleteButton.parentNode.replaceChild(newDeleteButton, deleteButton);
         newDeleteButton.addEventListener('click', () => {
-            // Получаем имя файла из select или выделенного li
-            let fileName = document.getElementById('load-file-name').value;
-            if (!fileName) {
-                // Если select пуст, ищем выделенный li
-                const selectedLi = document.querySelector('#file-list .file-item.selected');
-                if (selectedLi) {
-                    fileName = selectedLi.getAttribute('data-file-name');
-                }
-            }
-            deleteFile(fileName);
+            deleteFile(); // Функция сама определит имя файла
         });
+        console.log('Обработчик для кнопки delete-file добавлен');
+    } else {
+        console.error('Кнопка delete-file не найдена в DOM');
+    }
+
+    // Обработчик для второй кнопки удаления
+    const deleteSelectedButton = document.getElementById('delete-selected-file');
+    if (deleteSelectedButton) {
+        // Удаляем все предыдущие обработчики
+        const newDeleteSelectedButton = deleteSelectedButton.cloneNode(true);
+        deleteSelectedButton.parentNode.replaceChild(newDeleteSelectedButton, deleteSelectedButton);
+        newDeleteSelectedButton.addEventListener('click', () => {
+            deleteFile(); // Функция сама определит имя файла
+        });
+        console.log('Обработчик для кнопки delete-selected-file добавлен');
+    } else {
+        console.error('Кнопка delete-selected-file не найдена в DOM');
     }
 }
 
@@ -591,7 +665,7 @@ async function loadMap(fileName) {
 
     console.log('Загрузка файла:', fileName);
     try {
-        const response = await fetch(`http://127.0.0.1:3000/load/${encodeURIComponent(fileName)}`, {
+        const response = await fetch(`/load/${encodeURIComponent(fileName)}`, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json'
@@ -609,25 +683,52 @@ async function loadMap(fileName) {
         }
 
         const data = await response.json();
-        console.log('Получены данные:', data);
+        console.log('Получены данные из файла:', data);
 
-        // Исправлено: поддержка формата FeatureCollection (GeoJSON)
+        // Новый формат: файл с картой и ответами на вопросы
+        if (data && data.type === 'MapWithQuestions') {
+            console.log('📁 Загружается файл нового формата с картой и ответами');
+            
+            if (state && state.drawnItems) {
+                state.drawnItems.clearLayers();
+            }
+            
+            // Загружаем карту
+            if (data.geojson && data.geojson.type === 'FeatureCollection') {
+                importFromGeoJSON(data.geojson);
+                console.log('✅ Карта загружена из файла');
+            }
+            
+            // Загружаем ответы на вопросы из файла
+            if (data.questionsAnswers && typeof data.questionsAnswers === 'object') {
+                loadQuestionAnswersFromFile(data.questionsAnswers);
+                console.log('✅ Ответы на вопросы загружены из файла');
+                showNotification('Файл с картой и ответами успешно загружен!', 'success');
+            } else {
+                showNotification('Карта загружена из файла!', 'success');
+            }
+            return;
+        }
+
+        // Поддержка старого формата: обычный GeoJSON
         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features)) {
+            console.log('📁 Загружается файл старого формата (только карта)');
             if (state && state.drawnItems) {
                 state.drawnItems.clearLayers();
             }
             importFromGeoJSON(data);
-            showNotification('Файл успешно загружен', 'success');
+            showNotification('Карта загружена (старый формат файла)', 'success');
             return;
         }
 
-        // Старый формат (если вдруг)
+        // Еще более старый формат 
         if (data && data.geojsonData && data.geojsonData.type === 'FeatureCollection') {
+            console.log('📁 Загружается файл очень старого формата');
             if (state && state.drawnItems) {
                 state.drawnItems.clearLayers();
             }
             importFromGeoJSON(data.geojsonData);
-            showNotification('Файл успешно загружен', 'success');
+            showNotification('Карта загружена (очень старый формат файла)', 'success');
             return;
         }
 
@@ -635,6 +736,29 @@ async function loadMap(fileName) {
     } catch (error) {
         console.error('Ошибка при загрузке файла:', error);
         showNotification('Ошибка при загрузке файла', 'error');
+    }
+}
+
+/**
+ * Загрузка ответов на вопросы из файла (не из базы данных)
+ */
+function loadQuestionAnswersFromFile(answersData) {
+    console.log('📋 Загрузка ответов из файла:', answersData);
+    
+    if (!answersData || typeof answersData !== 'object') {
+        console.warn('⚠️ Нет ответов для загрузки из файла');
+        return;
+    }
+    
+    // Заполняем поля ответов
+    for (let i = 1; i <= 9; i++) {
+        const textarea = document.getElementById(`question${i}`);
+        const questionKey = `question${i}`;
+        
+        if (textarea && answersData[questionKey]) {
+            textarea.value = answersData[questionKey];
+            console.log(`✅ Загружен ответ на вопрос ${i}`);
+        }
     }
 }
 
@@ -655,9 +779,76 @@ function setCurrentFileName(fileName) {
     }
 }
 
-// Простейшая реализация функции уведомления
+// Улучшенная функция уведомлений
 function showNotification(message, type = 'info') {
-    alert(message);
+    // Создаем контейнер для уведомлений, если его нет
+    let notificationContainer = document.getElementById('notification-container');
+    if (!notificationContainer) {
+        notificationContainer = document.createElement('div');
+        notificationContainer.id = 'notification-container';
+        notificationContainer.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            max-width: 400px;
+        `;
+        document.body.appendChild(notificationContainer);
+    }
+
+    // Создаем элемент уведомления
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        color: white;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        opacity: 0;
+        transform: translateX(100%);
+        transition: all 0.3s ease;
+        cursor: pointer;
+    `;
+
+    // Устанавливаем цвет в зависимости от типа
+    switch (type) {
+        case 'success':
+            notification.style.backgroundColor = '#4CAF50';
+            break;
+        case 'error':
+            notification.style.backgroundColor = '#f44336';
+            break;
+        case 'warning':
+            notification.style.backgroundColor = '#ff9800';
+            break;
+        default:
+            notification.style.backgroundColor = '#2196F3';
+    }
+
+    notification.textContent = message;
+    notificationContainer.appendChild(notification);
+
+    // Анимация появления
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateX(0)';
+    }, 100);
+
+    // Удаление уведомления через 5 секунд или по клику
+    const removeNotification = () => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    };
+
+    notification.addEventListener('click', removeNotification);
+    setTimeout(removeNotification, 5000);
 }
 
 // Экспортируем все необходимые функции

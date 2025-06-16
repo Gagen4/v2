@@ -262,8 +262,8 @@ async function clearAllSaves() {
 // Добавить функцию создания пользователя по email
 async function createUserByEmail(email, hashedPassword) {
     const result = await run(
-        'INSERT INTO Users (email, password, role) VALUES (?, ?, ?)',
-        [email, hashedPassword, 'student']
+        'INSERT INTO Users (email, username, password, role) VALUES (?, ?, ?, ?)',
+        [email, email, hashedPassword, 'student']
     );
     return result.id;
 }

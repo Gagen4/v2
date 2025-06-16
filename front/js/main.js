@@ -10,6 +10,7 @@ import { initAuth, isAuthenticated } from './auth.js';
 import { state } from './mapInit.js';
 import { initCoordinates, updateFileList, initUI } from './ui.js';
 import { initAdmin } from './admin.js';
+import { initQuestions } from './questions.js';
 
 /**
  * Инициализирует карту и связанные компоненты
@@ -71,6 +72,7 @@ async function init() {
     });
 
     initAdmin();
+    initQuestions();
 
   } catch (error) {
     console.error('Ошибка инициализации приложения:', error);

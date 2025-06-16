@@ -51,6 +51,18 @@ const db = new sqlite3.Database(dbPath, (err) => {
             if (err) console.error('Error creating files table:', err);
         });
 
+        db.run(`CREATE TABLE IF NOT EXISTS student_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            answers TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+            UNIQUE(user_id)
+        )`, (err) => {
+            if (err) console.error('Error creating student_answers table:', err);
+        });
+
         db.run(`CREATE INDEX IF NOT EXISTS idx_mapobjects_type ON MapObjects(type)`, (err) => {
             if (err) console.error('Error creating index idx_mapobjects_type:', err);
         });

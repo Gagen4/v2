@@ -49,7 +49,7 @@
                     <option value="">Select file...</option>
                 </select>
                 <button id="load-map">Загрузить</button>
-                <button id="delete-map">Удалить выбранное сохранение</button>
+                <button id="delete-file">Удалить выбранное сохранение</button>
             </div>
             <div id="admin-file-panel" class="admin-panel" style="display: none;">
                 <h3>Admin Panel - Files</h3>
@@ -58,6 +58,7 @@
                         <option value="">Select user file...</option>
                     </select>
                     <button id="admin-load-file">Load Selected File</button>
+                    <button id="admin-view-answers">Просмотр ответов</button>
                 </div>
             </div>
             <div id="admin-role-panel" class="admin-role-panel" style="display: none;">
@@ -82,9 +83,68 @@
             <div id="error-message" style="color: red;"></div>
             <div id="current-file" style="margin-top: 10px; font-weight: bold;"></div>
         </div>
+        
+        <!-- Секция с вопросами для учеников -->
+        <div id="student-questions" class="student-questions-panel" style="display: none;">
+            <h3>Вопросы для изучения города</h3>
+            <div class="questions-container">
+                <div class="question-item">
+                    <label for="question1">1. Объясните историю возникновения и основные этапы развития города.</label>
+                    <textarea id="question1" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question2">2. Продемонстрируйте на карте роль природных условий и ресурсов в развитии города и жизни горожан.</label>
+                    <textarea id="question2" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question3">3. Определите социально-экономические факторы развития города.</label>
+                    <textarea id="question3" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question4">4. Дайте характеристику населению и трудовым ресурсам города.</label>
+                    <textarea id="question4" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question5">5. Определите народнохозяйственную структуру и функции города.</label>
+                    <textarea id="question5" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question6">6. Продемонстрируйте на карте внутригородское расселение, или территориальную организацию города.</label>
+                    <textarea id="question6" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question7">7. Опишите город в системе расселения страны к которой он принадлежит.</label>
+                    <textarea id="question7" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question8">8. Опишите город и его окружающую среду.</label>
+                    <textarea id="question8" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="question-item">
+                    <label for="question9">9. Выявите перспективы развития.</label>
+                    <textarea id="question9" placeholder="Введите ваш ответ..."></textarea>
+                </div>
+                
+                <div class="questions-info">
+                    <p style="margin: 15px 0 0 0; font-size: 14px; color: #666; text-align: center; font-style: italic;">
+                        💡 Ответы автоматически сохраняются и загружаются вместе с картой
+                    </p>
+                </div>
+            </div>
+        </div>
+        
         <div class="user-info">
             <span id="username-display"></span>
             <button id="logout-btn">Выйти</button>
+            <button id="test-questions-btn" style="margin-left: 10px; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">Вопросы</button>
         </div>
     </div>
     <div id="admin-panel" style="display: none;">
@@ -105,6 +165,7 @@
     </div>
     <script src="leaflet/leaflet.js"></script>
     <script type="module" src="js/auth.js"></script>
+    <script type="module" src="js/questions.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
